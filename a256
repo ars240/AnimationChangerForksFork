@@ -1,0 +1,1116 @@
+local HttpService = game:GetService("HttpService")
+
+local SUB_MENU_MAX_ROWS = 20
+local SUB_MENU_COL_WIDTH = 175
+
+local PLATFORMSTAND_OFFSET = 0x1E8
+local ANIMATION_ID_OFFSET = 0xD0
+
+local isUIVisible = true
+local toggleDebounce = false
+local isWaitingForKey = false
+local keybindLabel = nil
+
+local TOGGLE_KEYCODE = 115
+
+-- CONFIG DOSYA ADI
+local CONFIG_FILE = "anim_changer_multiconfig.json"
+
+local function resolveDynamicOffsets()
+    local success, response = pcall(function()
+        return game:HttpGet("https://imtheo.lol/Offsets/Offsets.json")
+    end)
+    
+    if success and response then
+        local ok, parsed = pcall(function() return HttpService:JSONDecode(response) end)
+        if ok and type(parsed) == "table" then
+            local function deepSearch(tbl, targetString)
+                targetString = targetString:lower()
+                for key, val in pairs(tbl) do
+                    if type(key) == "string" and string.find(key:lower(), targetString, 1, true) then
+                        if type(val) == "number" then return val end
+                        if type(val) == "string" then return tonumber(val) or tonumber(val, 16) end
+                    elseif type(val) == "table" then
+                        local found = deepSearch(val, targetString)
+                        if found then return found end
+                    end
+                end
+                return nil
+            end
+            
+            local dynamicPS = deepSearch(parsed, "platformstand")
+            local dynamicAnim = deepSearch(parsed, "animationid")
+            
+            if dynamicPS then PLATFORMSTAND_OFFSET = dynamicPS end
+            if dynamicAnim then ANIMATION_ID_OFFSET = dynamicAnim end
+        end
+    end
+end
+resolveDynamicOffsets()
+
+local function getKeyName(vk)
+    local names = {
+        [112] = "F1", [113] = "F2", [114] = "F3", [115] = "F4",
+        [116] = "F5", [117] = "F6", [118] = "F7", [119] = "F8",
+        [120] = "F9", [121] = "F10", [122] = "F11", [123] = "F12",
+        [27] = "Esc", [32] = "Space", [13] = "Enter", [9] = "Tab",
+        [45] = "Ins", [46] = "Del", [36] = "Home", [35] = "End",
+        [33] = "PgUp", [34] = "PgDn", [0x30] = "0", [0x31] = "1",
+        [0x32] = "2", [0x33] = "3", [0x34] = "4", [0x35] = "5",
+        [0x36] = "6", [0x37] = "7", [0x38] = "8", [0x39] = "9",
+        [0x41] = "A", [0x42] = "B", [0x43] = "C", [0x44] = "D",
+        [0x45] = "E", [0x46] = "F", [0x47] = "G", [0x48] = "H",
+        [0x49] = "I", [0x4A] = "J", [0x4B] = "K", [0x4C] = "L",
+        [0x4D] = "M", [0x4E] = "N", [0x4F] = "O", [0x50] = "P",
+        [0x51] = "Q", [0x52] = "R", [0x53] = "S", [0x54] = "T",
+        [0x55] = "U", [0x56] = "V", [0x57] = "W", [0x58] = "X",
+        [0x59] = "Y", [0x5A] = "Z", [8] = "Backspace"
+    }
+    return names[vk] or ""
+end
+
+local function isMouseButton(vk)
+    return vk == 0x01 or vk == 0x02 or vk == 0x04 or vk == 0x05 or vk == 0x06
+end
+
+local function read_std_string(addr)
+    local size = memory_read("uintptr_t", addr + 0x10)
+    local cap = memory_read("uintptr_t", addr + 0x18)
+    if size == 0 then return "" end
+    local ptr = (cap >= 16) and memory_read("uintptr_t", addr) or addr
+    local bytes = {}
+    for i = 0, size - 1 do
+        bytes[i + 1] = string.char(memory_read("byte", ptr + i))
+    end
+    return table.concat(bytes)
+end
+
+local function write_std_string(addr, newStr)
+    local cap = memory_read("uintptr_t", addr + 0x18)
+    if #newStr > cap then return false end
+    local ptr = (cap >= 16) and memory_read("uintptr_t", addr) or addr
+    for i = 1, #newStr do
+        memory_write("byte", ptr + i - 1, string.byte(newStr, i))
+    end
+    memory_write("byte", ptr + #newStr, 0)
+    memory_write("uintptr_t", addr + 0x10, #newStr)
+    return true
+end
+
+local function inflate_capacity_if_needed(animObj, targetStr)
+    local addr = animObj.Address + ANIMATION_ID_OFFSET
+    local cap = memory_read("uintptr_t", addr + 0x18)
+    if cap >= #targetStr then return true end
+    if setscriptable then pcall(setscriptable, animObj, "AnimationId", true) end
+    local ok = pcall(function() animObj.AnimationId = targetStr end)
+    if not ok and sethiddenproperty then
+        pcall(function() sethiddenproperty(animObj, "AnimationId", targetStr) end)
+    end
+    cap = memory_read("uintptr_t", addr + 0x18)
+    if cap >= #targetStr then return true end
+    local strVal = Instance.new("StringValue")
+    strVal.Name = "TempProxy"
+    strVal.Value = targetStr
+    local strAddr = strVal.Address
+    if strAddr then
+        local targetLen = #targetStr
+        local foundOffset = nil
+        for offset = 0x10, 0x150, 8 do
+            local s = memory_read("uintptr_t", strAddr + offset + 0x10)
+            local c = memory_read("uintptr_t", strAddr + offset + 0x18)
+            if s == targetLen and c >= targetLen and c < targetLen + 100 then
+                foundOffset = offset
+                break
+            end
+        end
+        if foundOffset then
+            local theftAddr = strAddr + foundOffset
+            for i = 0, 24, 8 do
+                local temp = memory_read("uintptr_t", addr + i)
+                local newVal = memory_read("uintptr_t", theftAddr + i)
+                memory_write("uintptr_t", addr + i, newVal)
+                memory_write("uintptr_t", theftAddr + i, temp)
+            end
+            return true
+        end
+    end
+    return false
+end
+
+local AnimationDatabase = {
+    Swim = {
+        Sneaky = "1132500520", Patrol = "1151204998", ["Adidas Community"] = "133308483266208", Levitation = "10921138209", ["Catwalk Glam"] = "134591743181628", Knight = "10921125160", Pirate = "750784579", Bold = "16738339158", ["Sports (Adidas)"] = "18537389531", Zombie = "616165109", Astronaut = "891663592", Cartoony = "10921079380", ["Wicked (Popular)"] = "99384245425157", Mage = "707876443", PopStar = "1212998578", ["Unboxed By Amazon"] = "105962919001086", R6 = "12518152696", ["Glow Motion"] = "83003487432457", ["[VOTE] Boat"] = "85689117221382", Rthro = "10921264784", CowBoy = "1014406523", ["No Boundaries (Walmart)"] = "18747073181", Werewolf = "10921340419", Confident = "1070009914", NFL = "132697394189921", OldSchool = "10921243048", ["Wicked \"Dancing Through Life\""] = "110657013921774", Elder = "10921108971", Bubbly = "910028158", SuperHero = "10921295495", ["[VOTE] Aura"] = "80645586378736", Stylish = "10921281000", Vampire = "10921324408", Toy = "10921309319", Robot = "10921253142", Princess = "941018893",
+    },
+    Climb = {
+        Robot = "616086039", Patrol = "1148811837", ["Adidas Community"] = "88763136693023", Levitation = "10921132092", ["Catwalk Glam"] = "119377220967554", Knight = "10921125160", ["[VOTE] Animal"] = "124810859712282", Bold = "16738332169", ["Sports (Adidas)"] = "18537363391", Zombie = "616156119", Astronaut = "10921032124", Cartoony = "742636889", Ninja = "656114359", Confident = "1069946257", ["Wicked \"Dancing Through Life\""] = "129447497744818", ["Unboxed By Amazon"] = "121145883950231", R6 = "12520982150", ["Glow Motion"] = "108236155509584", Ghost = "616003713", Rthro = "10921257536", CowBoy = "1014380606", ["No Boundaries (Walmart)"] = "18747060903", ["[VOTE] sticky"] = "77520617871799", Mage = "707826056", Vampire = "1083439238", Toy = "10921300839", ["(UGC) Retro"] = "121075390792786", NFL = "134630013742019", OldSchool = "10921229866", WereWolf = "10921329322", Elder = "845392038", ["Stylized Female"] = "4708184253", SuperHero = "10921286911", Stylish = "10921271391", Sneaky = "1132461372", ["Reanimated R15"] = "4211214992", Popstar = "1213044953", ["Wicked (Popular)"] = "131326830509784", Princess = "940996062", ["[VOTE] Rope"] = "134977367563514",
+    },
+    Idle = {
+        Robot = {"616088211", "616089559"}, ["[VOTE] warming up"] = {"83573330053643", "83573330053643"}, ["Drooling Zombie"] = {"3489171152", "3489171152"}, ["Adidas Community"] = {"122257458498464", "102357151005774"}, ["Catwalk Glam"] = {"133806214992291", "94970088341563"}, Knight = {"657595757", "657568135"}, Pirate = {"750781874", "750782770"}, mafioso = {"120527173641109", "120527173641109"}, Astronaut = {"891621366", "891633237"}, Cartoony = {"742637544", "742638445"}, ["Wicked (Popular)"] = {"118832222982049", "76049494037641"}, Mage = {"707742142", "707855907"}, ["(UGC) Noli"] = {"139360856809483", "139360856809483"}, ["Unboxed By Amazon"] = {"98281136301627", "138183121662404"}, R6 = {"12521158637", "12521162526"}, Soldier = {"3972151362", "3972151362"}, ["(UGC) 1x1x1x1"] = {"76780522821306", "76780522821306"}, ["R15 Reanimated"] = {"4211217646", "4211218409"}, ["2016 Animation (mm2)"] = {"387947158", "387947464"}, cesus = {"115879733952840", "115879733952840"}, Werewolf = {"1083195517", "1083214717"}, ["(UGC) Retro"] = {"80479383912838", "80479383912838"}, NFL = {"92080889861410", "74451233229259"}, Elder = {"10921101664", "10921102574"}, Bubbly = {"910004836", "910009958"}, dog = {"122475317803320", "122475317803320"}, Popstar = {"1212900985", "1150842221"}, ["(UGC) Coolkid"] = {"95203125292023", "95203125292023"}, Cowboy = {"1014390418", "1014398616"}, Sneaky = {"1132473842", "1132477671"}, Patrol = {"1149612882", "1150842221"}, Sway = {"560832030", "560833564"}, ["(UGC) Survivor Injured"] = {"73905365652295", "73905365652295"}, Levitation = {"616006778", "616008087"}, Vampire = {"1083445855", "1083450166"}, ["(UGC) Slasher"] = {"140051337061095", "140051337061095"}, Bold = {"16738333868", "16738334710"}, ["(UGC) Magician"] = {"139433213852503", "139433213852503"}, Zombie = {"616158929", "616160636"}, Ninja = {"656117400", "656118341"}, Confident = {"1069977950", "1069987858"}, ["Wicked \"Dancing Through Life\""] = {"92849173543269", "132238900951109"}, ["UGC Oneleft"] = {"121217497452435", "121217497452435"}, Ghost = {"616006778", "616008087"}, Udzal = {"3303162274", "3303162549"}, ["No Boundaries (Walmart)"] = {"18747067405", "18747063918"}, Realistic = {"17172918855", "17173014241"}, ["Glow Motion"] = {"137764781910579", "96439737641086"}, ["Very Long"] = {"18307781743", "18307781743"}, AuraFarming = {"138665010911335", "138665010911335"}, Rthro = {"10921259953", "10921258489"}, ["(UGC) Zombie"] = {"77672872857991", "77672872857991"}, OldSchool = {"10921230744", "10921232093"}, MrToilet = {"4417977954", "4417978624"}, Stylish = {"616136790", "616138447"}, coolkid = {"92946600983329", "92946600983329"}, Superhero = {"10921288909", "10921290167"}, ["(UGC) Retro Zombie"] = {"90806086002292", "90806086002292"}, ["[VOTE] Mech Float"] = {"74447366032908", "74447366032908"}, ["(UGC) TailWag"] = {"129026910898635", "129026910898635"}, Badware = {"140131631438778", "140131631438778"}, ["Stylized Female"] = {"4708191566", "4708192150"}, ["Sports (Adidas)"] = {"18537376492", "18537371272"}, ["(UGC) John Doe"] = {"72526127498800", "72526127498800"}, Borock = {"3293641938", "3293642554"}, Toy = {"782841498", "782845736"}, ["[VOTE] Float"] = {"110375749767299", "110375749767299"}, ["Default Retarget"] = {"95884606664820", "95884606664820"}, Princess = {"941003647", "941013098"}, ["(UGC) Oh Really?"] = {"98004748982532", "98004748982532"},
+    },
+    Jump = {
+        Robot = "616090535", Patrol = "1148811837", ["Adidas Community"] = "75290611992385", Levitation = "616008936", ["Catwalk Glam"] = "116936326516985", Knight = "910016857", Pirate = "750782230", Bold = "16738336650", ["Sports (Adidas)"] = "18537380791", Zombie = "616161997", Astronaut = "891627522", Cartoony = "742637942", Ninja = "656117878", Confident = "1069984524", ["Wicked \"Dancing Through Life\""] = "78508480717326", ["Unboxed By Amazon"] = "121454505477205", R6 = "12520880485", ["Glow Motion"] = "74159004634379", reset = "0", ["R15 Reanimated"] = "4211219390", Ghost = "616008936", Rthro = "10921263860", ["[UGC] happy"] = "72388373557525", ["No Boundaries (Walmart)"] = "18747069148", ["r6 run but fall"] = "12518152696", Werewolf = "1083218792", UGC = "91788124131212", Toy = "10921308158", ["Wicked (Popular)"] = "104325245285198", Vampire = "1083455352", ["[VOTE] Aura"] = "93382302369459", ["(UGC) Retro"] = "139390570947836", Bubbly = "910016857", ["[VOTE] Float"] = "75611679208549", NFL = "119846112151352", OldSchool = "10921242013", Stylish = "616139451", Elder = "10921107367", ["Stylized Female"] = "4708188025", Superhero = "10921294559", Sneaky = "1132489853", Mage = "10921149743", ["[VOTE] Animal"] = "131203832825082", Popstar = "1212954642", ["Default Retarget"] = "117150377950987", Princess = "941008832", Cowboy = "1014394726",
+    },
+    SwimIdle = {
+        Sneaky = "1132506407", SuperHero = "10921297391", ["Adidas Community"] = "109346520324160", Levitation = "10921139478", ["Catwalk Glam"] = "98854111361360", Knight = "10921125935", Pirate = "750785176", Bold = "16738339817", ["Sports (Adidas)"] = "18537387180", Stylized = "4708190607", Astronaut = "891663592", Cartoony = "10921079380", ["Wicked (Popular)"] = "113199415118199", Mage = "707894699", ["Wicked \"Dancing Through Life\""] = "129183123083281", ["Unboxed By Amazon"] = "129126268464847", R6 = "12518152696", ["Glow Motion"] = "112946194103503", Rthro = "10921265698", CowBoy = "1014411816", ["No Boundaries (Walmart)"] = "18747071682", Werewolf = "10921341319", NFL = "79090109939093", OldSchool = "10921244018", Stylish = "10921281964", Elder = "10921110146", Bubbly = "910030921", Patrol = "1151221899", Toy = "10921310341", Confident = "1070012133", Ninja = "656118341", Popstar = "1212998578", Vampire = "10921325443", Princess = "941025398", Robot = "10921253767",
+    },
+    Fall = {
+        Robot = "616087089", Patrol = "1148863382", ["Adidas Community"] = "98600215928904", Levitation = "616005863", ["Catwalk Glam"] = "92294537340807", Knight = "10921122579", Pirate = "750780242", Bold = "16738333171", ["Sports (Adidas)"] = "18537367238", ["[VOTE] skydiving"] = "102674302534126", Zombie = "616157476", Astronaut = "891617961", Cartoony = "742637151", Ninja = "656115606", Confident = "1069973677", ["Wicked \"Dancing Through Life\""] = "78147885297412", ["Unboxed By Amazon"] = "94788218468396", R6 = "12520972571", ["Glow Motion"] = "98070939608691", reset = "0", ["[UGC] skydiving"] = "102674302534126", ["R15 Reanimated"] = "4211216152", Rthro = "10921262864", ["No Boundaries (Walmart)"] = "18747062535", Werewolf = "1083189019", ["[VOTE] TPose"] = "139027266704971", R15Dance2B = {"507776720"}, ["r6 run but jump"] = "12518152696", Mage = "707829716", Toy = "782846423", Superhero = "10921293373", Vampire = "1083443587", NFL = "129773241321032", OldSchool = "10921241244", ["Stylized Female"] = "4708186162", Elder = "10921105765", Bubbly = "910001910", Stylish = "616134815", Sneaky = "1132469004", ["Wicked (Popular)"] = "121152442762481", ["[VOTE] Animal"] = "77069224396280", Popstar = "1212900995", ["Default Retarget"] = "110205622518029", Princess = "941000007", Cowboy = "1014384571",
+    },
+    Run = {
+        Robot = "10921250460", Patrol = "1150967949", ["Drooling Zombie"] = "3489173414", ["Catwalk Glam"] = "81024476153754", ["[UGC] Naruto"] = "104074120169874", ["Adidas Community"] = "82598234841035", ["Heavy Run (Udzal / Borock)"] = "3236836670", Runaway = "78510387198062", ["[UGC] ball"] = "132499588684957", Knight = "10921121197", Pirate = "750783738", Bold = "16738337225", ["Sports (Adidas)"] = "18537384940", Zombie = "616163682", ["[UGC] DCEU Flash"] = "107994680200921", Toy = "10921306285", ["[UGC] Flipping"] = "124427738251511", Cartoony = "10921076136", Ninja = "656118852", ["(UGC) Dog"] = "130072963359721", ["Wicked \"Dancing Through Life\""] = "135515454877967", Superhero = "10921291831", ["Unboxed By Amazon"] = "134824450619865", Sneaky = "1132494274", ["fake wicked"] = "138992096476836", R6 = "12518152696", ["Glow Motion"] = "101925097435036", Bubbly = "1092057244", furry = "102269417125238", ["[UGC] chibi"] = "85887415033585", ["R15 Reanimated"] = "4211220381", Rthro = "10921261968", Ghost = "616013216", ["2016 Animation (mm2)"] = "387947975", Confident = "1070001516", bunnyhop = "109161394574390", ["No Boundaries (Walmart)"] = "18747070484", ["(UGC) Retro"] = "107806791584829", Werewolf = "10921336997", ["[UGC] Girly"] = "128578785610052", ["(UGC) Retro Zombie"] = "140703855480494", Stylish = "10921276116", Levitation = "616010382", ["(UGC) Soccer"] = "116881956670910", MrToilet = "4417979645", ["(UGC) Pride"] = "116462200642360", Vampire = "10921320299", NFL = "117333533048078", OldSchool = "10921240218", Mage = "10921148209", Elder = "10921104374", ["Stylized Female"] = "4708192705", ["Wicked (Popular)"] = "72301599441680", bhop = "120051666454351", Astronaut = "10921039308", Popstar = "1212980348", ["Default Retarget"] = "102294264237491", Princess = "941015281", Cowboy = "1014401683",
+    },
+    Walk = {
+        Geto = "85811471336028", ["1x4"] = "138379855143069", Patrol = "1151231493", ["Drooling Zombie"] = "3489174223", ["Adidas Community"] = "122150855457006", Levitation = "616013216", ["Catwalk Glam"] = "109168724482748", Knight = "10921127095", Pirate = "750785693", Bold = "16738340646", ["Sports (Adidas)"] = "18537392113", Zombie = "616168032", Astronaut = "891667138", Cartoony = "742640026", Ninja = "656121766", Confident = "1070017263", ["Wicked \"Dancing Through Life\""] = "73718308412641", ["[UGC] Cool"] = "128995932870454", ["Unboxed By Amazon"] = "90478085024465", Gojo = "95643163365384", ["Glow Motion"] = "85809016093530", mafioso = "86916179388467", ["Default Retarget"] = "115825677624788", ["R15 Reanimated"] = "4211223236", Toy = "782843345", Ghost = "616013216", Rthro = "10921269718", ["(UGC) Zombie"] = "113603435314095", ["2016 Animation (mm2)"] = "387947975", ["No Boundaries (Walmart)"] = "18747074203", ["Wicked (Popular)"] = "92072849924640", Werewolf = "1083178339", Udzal = "3303162967", Superhero = "10921298616", ["Stylized Female"] = "4708193840", Stylish = "616146177", Sneaky = "1132510133", Robot = "616095330", ["(UGC) Retro Zombie"] = "140703855480494", coolkid = "93206157668596", ["(UGC) Retro"] = "107806791584829", NFL = "110358958299415", OldSchool = "10921244891", R6 = "12518152696", Elder = "10921111375", Bubbly = "910034870", ["(UGC) Smooth"] = "76630051272791", Mage = "707897309", Vampire = "1083473930", ["cool i think"] = "125496855068182", Popstar = "1212980338", c00lkid = "93206157668596", Princess = "941028902", Cowboy = "1014421541",
+    },
+}
+
+local rawPacks = {}
+local seenPacks = {}
+
+local function addPack(name, data)
+    if seenPacks[name] then return end
+    seenPacks[name] = true
+    rawPacks[name] = data
+end
+
+for name, ids in pairs(AnimationDatabase.Idle) do
+    if type(ids) == "table" and #ids == 2 then
+        addPack(name, {
+            {"idle", "Animation1", tonumber(ids[1]) or 0},
+            {"idle", "Animation2", tonumber(ids[2]) or 0},
+        })
+    end
+end
+
+local categories = {"Walk", "Run", "Jump", "Fall", "SwimIdle", "Swim", "Climb"}
+for _, catName in ipairs(categories) do
+    for name, id in pairs(AnimationDatabase[catName]) do
+        if type(id) == "string" then
+            local folder = catName == "SwimIdle" and "swimidle" or catName:lower()
+            local packName = name .. " (" .. catName .. ")"
+            addPack(packName, {
+                {folder, "Animation1", tonumber(id) or 0},
+                {folder, "Animation2", tonumber(id) or 0},
+            })
+        end
+    end
+end
+
+local categoryConfig = {
+    { name = "Idle",  folders = {"idle"} },
+    { name = "Walk",  folders = {"walk"} },
+    { name = "Run",   folders = {"run"} },
+    { name = "Jump",  folders = {"jump"} },
+    { name = "Fall",  folders = {"fall"} },
+    { name = "Climb", folders = {"climb"} },
+    { name = "Swim",  folders = {"swim", "swimidle"} },
+}
+
+local categoryOptions = {}
+for _, cat in ipairs(categoryConfig) do 
+    categoryOptions[cat.name] = {} 
+end
+
+for packName, animList in pairs(rawPacks) do
+    local catDataMap = {} 
+    for _, animData in ipairs(animList) do
+        local folder = animData[1]
+        local id = animData[3]
+        local catName = nil
+        if folder == "idle" then catName = "Idle"
+        elseif folder == "walk" then catName = "Walk"
+        elseif folder == "run" then catName = "Run"
+        elseif folder == "jump" then catName = "Jump"
+        elseif folder == "fall" then catName = "Fall"
+        elseif folder == "climb" then catName = "Climb"
+        elseif folder == "swim" or folder == "swimidle" then catName = "Swim"
+        end
+        if catName then
+            if not catDataMap[catName] then catDataMap[catName] = {} end
+            if not catDataMap[catName][folder] then catDataMap[catName][folder] = {} end
+            table.insert(catDataMap[catName][folder], id)
+        end
+    end
+    for catName, foldersMap in pairs(catDataMap) do
+        table.insert(categoryOptions[catName], { name = packName, foldersData = foldersMap })
+    end
+end
+
+for _, cat in ipairs(categoryConfig) do
+    table.sort(categoryOptions[cat.name], function(a, b) 
+        return a.name:lower() < b.name:lower() 
+    end)
+end
+
+local activeSpoofs = {} 
+local enabledCategories = {}
+local dropdowns = {}
+local activeMenuIndex = nil
+local toggleWidgets = {}
+
+for _, cat in ipairs(categoryConfig) do
+    enabledCategories[cat.name] = true
+end
+
+local function applyActiveAnimations()
+    local player = game:GetService("Players").LocalPlayer
+    if not player or not player.Character then return end
+    local hum = player.Character:FindFirstChild("Humanoid")
+    local animate = player.Character:FindFirstChild("Animate")
+    if not hum or not animate then return end
+    
+    memory_write("byte", hum.Address + PLATFORMSTAND_OFFSET, 1)
+    task.wait(0.1)
+    
+    for folderName, idArray in pairs(activeSpoofs) do
+        local folder = animate:FindFirstChild(folderName)
+        if folder then
+            local anims = {}
+            for _, child in ipairs(folder:GetChildren()) do
+                if child:IsA("Animation") then table.insert(anims, child) end
+            end
+            for i, targetId in ipairs(idArray) do
+                local animObj = anims[i]
+                if animObj then
+                    local newIdStr = "http://www.roblox.com/asset/?id=" .. tostring(targetId)
+                    local addr = animObj.Address + ANIMATION_ID_OFFSET
+                    if read_std_string(addr) ~= newIdStr then
+                        inflate_capacity_if_needed(animObj, newIdStr)
+                        write_std_string(addr, newIdStr)
+                    end
+                end
+            end
+        end
+    end
+    
+    task.wait(0.1)
+    memory_write("byte", hum.Address + PLATFORMSTAND_OFFSET, 0)
+end
+
+-- ==========================================
+-- ÇOKLU CONFIG (PROFIL) VE EDITING DURUMU
+-- ==========================================
+local globalConfigsList = {} 
+local editingProfileIndex = nil -- Yeniden adlandırılan slotun indexi (Yoksa nil)
+
+local function saveAllConfigsToFile()
+    if writefile then
+        local success, jsonStr = pcall(function() return HttpService:JSONEncode(globalConfigsList) end)
+        if success then
+            writefile(CONFIG_FILE, jsonStr)
+        end
+    end
+end
+
+local function loadAllConfigsFromFile()
+    if isfile and readfile and isfile(CONFIG_FILE) then
+        local success, content = pcall(readfile, CONFIG_FILE)
+        if success then
+            local ok, parsed = pcall(function() return HttpService:JSONDecode(content) end)
+            if ok and type(parsed) == "table" then
+                globalConfigsList = parsed
+            end
+        end
+    end
+end
+
+loadAllConfigsFromFile()
+
+local shouldUpdate = false
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if shouldUpdate then
+            applyActiveAnimations()
+            shouldUpdate = false
+        end
+    end
+end)
+
+local width = 320
+local titleHeight = 34
+local startX, startY = 60, 60
+local leftPadding = 12
+
+local bgColor = Color3.fromRGB(0x14, 0x14, 0x17)
+local textColor = Color3.fromRGB(255, 255, 255)
+
+local charWidth = 7
+local fontSize = 13
+local gap = 10         
+local rowSpacing = 9  
+
+local titleBar = Drawing.new("Square")
+titleBar.Position = Vector2.new(startX, startY + 1)
+titleBar.Size = Vector2.new(width, titleHeight)
+titleBar.Color = bgColor
+titleBar.Transparency = 0.9
+titleBar.Filled = true
+titleBar.Visible = true
+
+local function makeTitleText(txt, xOff, opacity)
+    local t = Drawing.new("Text")
+    t.Text = txt
+    t.Size = fontSize
+    t.Color = textColor
+    t.Transparency = opacity
+    t.Font = Drawing.Fonts.UI
+    t.Center = false
+    t.Outline = false                 
+    t.Visible = true
+    t.Position = Vector2.new(startX + xOff, startY + 1 + titleHeight/2 - fontSize/2)
+    return t
+end
+
+local title1 = makeTitleText("Anim Changer R15 fork", leftPadding, 1.0)
+local title2 = makeTitleText("", leftPadding + 130, 0.25)
+local title3 = makeTitleText("", leftPadding + 130 + 7, 0.5)
+
+local content = Drawing.new("Square")
+content.Color = bgColor
+content.Transparency = 0.85
+content.Filled = true
+content.Visible = true
+
+local menuContent = Drawing.new("Square")
+menuContent.Color = bgColor
+menuContent.Transparency = 0.85
+menuContent.Filled = true
+menuContent.Visible = false
+
+local function createToggle(catName, label, default)
+    local toggle = {
+        value = default,
+        label = Drawing.new("Text"),
+        enabled = Drawing.new("Text"),
+    }
+    
+    toggle.label.Text = label
+    toggle.label.Size = fontSize
+    toggle.label.Color = textColor
+    toggle.label.Transparency = 0.7
+    toggle.label.Font = Drawing.Fonts.UI
+    toggle.label.Center = false
+    toggle.label.Outline = false
+    toggle.label.Visible = true
+    
+    toggle.enabled.Text = default and "ON" or "OFF"
+    toggle.enabled.Size = fontSize
+    toggle.enabled.Color = default and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    toggle.enabled.Transparency = 0.9
+    toggle.enabled.Font = Drawing.Fonts.UI
+    toggle.enabled.Center = false
+    toggle.enabled.Outline = false
+    toggle.enabled.Visible = true
+    
+    return toggle
+end
+
+for _, cat in ipairs(categoryConfig) do
+    local catName = cat.name
+    local toggle = createToggle(catName, catName, true)
+    toggleWidgets[catName] = toggle
+end
+
+local keybindToggle = {
+    label = Drawing.new("Text"),
+    value = Drawing.new("Text"),
+    hint = Drawing.new("Text"),
+    isWaiting = false
+}
+
+keybindToggle.label.Text = "Hide:"
+keybindToggle.label.Size = fontSize
+keybindToggle.label.Color = textColor
+keybindToggle.label.Transparency = 0.7
+keybindToggle.hint.Font = Drawing.Fonts.UI
+keybindToggle.label.Center = false
+keybindToggle.label.Outline = false
+keybindToggle.label.Visible = true
+
+keybindToggle.value.Text = getKeyName(TOGGLE_KEYCODE)
+keybindToggle.value.Size = fontSize
+keybindToggle.value.Color = Color3.fromRGB(0, 255, 255)
+keybindToggle.value.Transparency = 0.9
+keybindToggle.value.Font = Drawing.Fonts.UI
+keybindToggle.value.Center = false
+keybindToggle.value.Outline = false
+keybindToggle.value.Visible = true
+
+keybindToggle.hint.Text = "(click)"
+keybindToggle.hint.Size = 10
+keybindToggle.hint.Color = textColor
+keybindToggle.hint.Transparency = 0.5
+keybindToggle.hint.Font = Drawing.Fonts.UI
+keybindToggle.hint.Center = false
+keybindToggle.hint.Outline = false
+keybindToggle.hint.Visible = true
+
+for i, cat in ipairs(categoryConfig) do
+    local drop = {
+        baseName = cat.name,
+        governedFolders = cat.folders,
+        optionsData = categoryOptions[cat.name],
+        selectedIndex = nil,
+        isOpen = false
+    }
+    
+    drop.label = Drawing.new("Text")
+    drop.label.Text = "  " .. drop.baseName
+    drop.label.Size = fontSize
+    drop.label.Color = textColor
+    drop.label.Transparency = 0.5
+    drop.label.Font = Drawing.Fonts.UI
+    drop.label.Center = false
+    drop.label.Outline = false
+    drop.label.Visible = true
+    
+    drop.arrow = Drawing.new("Text")
+    drop.arrow.Text = "<"
+    drop.arrow.Size = fontSize
+    drop.arrow.Color = textColor
+    drop.arrow.Transparency = 0.5
+    drop.arrow.Font = Drawing.Fonts.UI
+    drop.arrow.Center = false
+    drop.arrow.Outline = false
+    drop.arrow.Visible = true
+    
+    drop.optionDrawings = {}
+    for j = 1, #drop.optionsData do
+        local optText = Drawing.new("Text")
+        optText.Text = drop.optionsData[j].name
+        optText.Size = fontSize
+        optText.Color = textColor
+        optText.Transparency = 0.7 
+        optText.Font = Drawing.Fonts.UI
+        optText.Center = false
+        optText.Outline = false
+        optText.Visible = false
+        table.insert(drop.optionDrawings, optText)
+    end
+    
+    table.insert(dropdowns, drop)
+end
+
+local addConfigBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") }
+
+addConfigBtn.bg.Color = Color3.fromRGB(45, 50, 60)
+addConfigBtn.bg.Transparency = 0.8
+addConfigBtn.bg.Filled = true
+addConfigBtn.bg.Visible = true
+addConfigBtn.text.Text = "ADD CONFIG"
+addConfigBtn.text.Size = 13
+addConfigBtn.text.Color = textColor
+addConfigBtn.text.Font = Drawing.Fonts.UI
+addConfigBtn.text.Center = true
+addConfigBtn.text.Visible = true
+
+local profileRows = {}
+for i = 1, 5 do
+    local row = {
+        bg = Drawing.new("Square"),
+        title = Drawing.new("Text"),
+        loadBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") },
+        updateBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") },
+        deleteBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") }
+    }
+    
+    row.bg.Color = Color3.fromRGB(25, 25, 30)
+    row.bg.Transparency = 0.6
+    row.bg.Filled = true
+    
+    row.title.Size = 12
+    row.title.Color = textColor
+    row.title.Font = Drawing.Fonts.UI
+    
+    row.loadBtn.bg.Color = Color3.fromRGB(35, 130, 35)
+    row.loadBtn.bg.Filled = true
+    row.loadBtn.text.Text = "Load"
+    row.loadBtn.text.Size = 11
+    row.loadBtn.text.Color = textColor
+    row.loadBtn.text.Center = true
+    
+    row.updateBtn.bg.Color = Color3.fromRGB(190, 100, 20)
+    row.updateBtn.bg.Filled = true
+    row.updateBtn.text.Text = "Update"
+    row.updateBtn.text.Size = 11
+    row.updateBtn.text.Color = textColor
+    row.updateBtn.text.Center = true
+    
+    row.deleteBtn.bg.Color = Color3.fromRGB(150, 35, 35)
+    row.deleteBtn.bg.Filled = true
+    row.deleteBtn.text.Text = "Delete"
+    row.deleteBtn.text.Size = 11
+    row.deleteBtn.text.Color = textColor
+    row.deleteBtn.text.Center = true
+    
+    table.insert(profileRows, row)
+end
+
+local function setRowVisibility(row, visible)
+    row.bg.Visible = visible
+    row.title.Visible = visible
+    row.loadBtn.bg.Visible = visible
+    row.loadBtn.text.Visible = visible
+    row.updateBtn.bg.Visible = visible
+    row.updateBtn.text.Visible = visible
+    row.deleteBtn.bg.Visible = visible
+    row.deleteBtn.text.Visible = visible
+end
+
+local function updateContentLayout()
+    titleBar.Visible = isUIVisible
+    title1.Visible = isUIVisible
+    title2.Visible = isUIVisible
+    title3.Visible = isUIVisible
+    content.Visible = isUIVisible
+    addConfigBtn.bg.Visible = isUIVisible
+    addConfigBtn.text.Visible = isUIVisible
+
+    local titleX = titleBar.Position.X
+    local titleY = titleBar.Position.Y
+    
+    local startContentY = titleY + titleHeight
+    local currentY = startContentY + 12 
+    local toggleX = titleX + leftPadding
+    
+    for i, cat in ipairs(categoryConfig) do
+        local catName = cat.name
+        local toggle = toggleWidgets[catName]
+        local drop = dropdowns[i]
+        
+        toggle.label.Position = Vector2.new(toggleX, currentY)
+        toggle.label.Visible = isUIVisible
+        
+        toggle.enabled.Position = Vector2.new(toggleX + 48, currentY)
+        toggle.enabled.Visible = isUIVisible
+        
+        drop.label.Position = Vector2.new(toggleX + 75, currentY)
+        drop.label.Visible = isUIVisible
+        
+        if activeMenuIndex == i then
+            drop.arrow.Text = ">"
+            drop.arrow.Transparency = 1.0
+        else
+            drop.arrow.Text = "<"
+            drop.arrow.Transparency = 0.5
+        end
+        
+        drop.arrow.Position = Vector2.new(titleX + width - 12 - charWidth, currentY)
+        drop.arrow.Visible = isUIVisible
+        
+        currentY = currentY + fontSize + gap 
+    end
+    
+    keybindToggle.label.Position = Vector2.new(toggleX, currentY)
+    keybindToggle.label.Visible = isUIVisible
+    keybindToggle.value.Position = Vector2.new(toggleX + 38, currentY)
+    keybindToggle.value.Visible = isUIVisible
+    keybindToggle.hint.Position = Vector2.new(toggleX + 75, currentY + 1)
+    keybindToggle.hint.Visible = isUIVisible
+    
+    currentY = currentY + fontSize + 15
+    
+    addConfigBtn.bg.Position = Vector2.new(titleX + 12, currentY)
+    addConfigBtn.bg.Size = Vector2.new(width - 24, 28)
+    addConfigBtn.text.Position = Vector2.new(titleX + (width / 2), currentY + 14 - (fontSize / 2))
+    
+    if #globalConfigsList >= 5 then
+        addConfigBtn.text.Text = "MAX LIMIT REACHED (5/5)"
+        addConfigBtn.bg.Color = Color3.fromRGB(35, 35, 40)
+    else
+        addConfigBtn.text.Text = "ADD CONFIG (" .. #globalConfigsList .. "/5)"
+        addConfigBtn.bg.Color = Color3.fromRGB(45, 50, 60)
+    end
+    
+    currentY = currentY + 34
+    
+    for i = 1, 5 do
+        local row = profileRows[i]
+        local configData = globalConfigsList[i]
+        
+        if configData and isUIVisible then
+            setRowVisibility(row, true)
+            
+            row.bg.Position = Vector2.new(titleX + 12, currentY)
+            row.bg.Size = Vector2.new(width - 24, 38)
+            
+            -- Eğer slot düzenleme modundaysa ismi yeşil gösteriyoruz ve sonuna "_" koyuyoruz
+            if editingProfileIndex == i then
+                row.title.Text = configData.Name .. "_"
+                row.title.Color = Color3.fromRGB(0, 255, 0)
+            else
+                row.title.Text = configData.Name or ("Config " .. i)
+                row.title.Color = textColor
+            end
+            row.title.Position = Vector2.new(titleX + 18, currentY + 19 - 6)
+            
+            local btnW = 48
+            local btnH = 22
+            local btnY = currentY + 19 - (btnH / 2)
+            local rightX = titleX + width - 18
+            
+            row.deleteBtn.bg.Position = Vector2.new(rightX - btnW, btnY)
+            row.deleteBtn.bg.Size = Vector2.new(btnW, btnH)
+            row.deleteBtn.text.Position = Vector2.new(rightX - btnW + (btnW/2), btnY + (btnH/2) - 6)
+            
+            row.updateBtn.bg.Position = Vector2.new(rightX - (btnW * 2) - 4, btnY)
+            row.updateBtn.bg.Size = Vector2.new(btnW, btnH)
+            row.updateBtn.text.Position = Vector2.new(rightX - (btnW * 2) - 4 + (btnW/2), btnY + (btnH/2) - 6)
+            
+            row.loadBtn.bg.Position = Vector2.new(rightX - (btnW * 3) - 8, btnY)
+            row.loadBtn.bg.Size = Vector2.new(btnW, btnH)
+            row.loadBtn.text.Position = Vector2.new(rightX - (btnW * 3) - 8 + (btnW/2), btnY + (btnH/2) - 6)
+            
+            currentY = currentY + 42
+        else
+            setRowVisibility(row, false)
+        end
+    end
+    
+    local finalContentHeight = (currentY - startContentY) + 4
+    content.Position = Vector2.new(titleX, startContentY)
+    content.Size = Vector2.new(width, finalContentHeight)
+    
+    if activeMenuIndex and isUIVisible then
+        local targetDrop = dropdowns[activeMenuIndex]
+        local menuX = titleX + width + 2
+        local menuY = startContentY
+        
+        local totalItems = #targetDrop.optionsData
+        if totalItems > 0 then
+            local numColumns = math.ceil(totalItems / SUB_MENU_MAX_ROWS)
+            local numRows = math.min(totalItems, SUB_MENU_MAX_ROWS)
+            
+            local totalTextHeight = numRows * fontSize
+            local totalGapsHeight = (numRows - 1) * rowSpacing
+            local menuHeight = 12 + totalTextHeight + totalGapsHeight + 12
+            local menuTotalWidth = numColumns * SUB_MENU_COL_WIDTH
+            
+            menuContent.Position = Vector2.new(menuX, menuY)
+            menuContent.Size = Vector2.new(menuTotalWidth, menuHeight)
+            menuContent.Visible = true
+            
+            for j, drawing in ipairs(targetDrop.optionDrawings) do
+                drawing.Visible = true
+                local colIndex = math.floor((j - 1) / SUB_MENU_MAX_ROWS)
+                local rowIndex = (j - 1) % SUB_MENU_MAX_ROWS
+                
+                local drawX = menuX + 12 + (colIndex * SUB_MENU_COL_WIDTH)
+                local drawY = menuY + 12 + (rowIndex * (fontSize + rowSpacing))
+                
+                drawing.Position = Vector2.new(drawX, drawY)
+                
+                if j == targetDrop.selectedIndex then
+                    drawing.Text = "> " .. targetDrop.optionsData[j].name
+                    drawing.Transparency = 1.0
+                else
+                    drawing.Text = targetDrop.optionsData[j].name
+                    drawing.Transparency = 0.7
+                end
+            end
+        end
+        for i, drop in ipairs(dropdowns) do
+            if i ~= activeMenuIndex then
+                for _, drawing in ipairs(drop.optionDrawings) do drawing.Visible = false end
+            end
+        end
+    else
+        menuContent.Visible = false
+        for i, drop in ipairs(dropdowns) do
+            for _, drawing in ipairs(drop.optionDrawings) do drawing.Visible = false end
+        end
+    end
+end
+
+local function captureCurrentStateData(nameStr)
+    local state = {
+        Name = nameStr,
+        Toggles = {},
+        Selections = {},
+        Keybind = TOGGLE_KEYCODE
+    }
+    for _, cat in ipairs(categoryConfig) do
+        state.Toggles[cat.name] = enabledCategories[cat.name]
+    end
+    for i, drop in ipairs(dropdowns) do
+        state.Selections[drop.baseName] = drop.selectedIndex
+    end
+    return state
+end
+
+local function applyStateData(state)
+    if not state then return end
+    if state.Keybind then TOGGLE_KEYCODE = state.Keybind end
+    
+    for _, cat in ipairs(categoryConfig) do
+        if state.Toggles and state.Toggles[cat.name] ~= nil then
+            enabledCategories[cat.name] = state.Toggles[cat.name]
+            local toggle = toggleWidgets[cat.name]
+            if toggle then
+                toggle.value = enabledCategories[cat.name]
+                toggle.enabled.Text = toggle.value and "ON" or "OFF"
+                toggle.enabled.Color = toggle.value and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+            end
+        end
+    end
+    
+    for folderName, _ in pairs(activeSpoofs) do activeSpoofs[folderName] = nil end
+    
+    for i, drop in ipairs(dropdowns) do
+        if state.Selections and state.Selections[drop.baseName] then
+            drop.selectedIndex = state.Selections[drop.baseName]
+            local selectedPack = drop.optionsData[drop.selectedIndex]
+            if selectedPack and enabledCategories[drop.baseName] then
+                for fName, idsList in pairs(selectedPack.foldersData) do
+                    activeSpoofs[fName] = idsList
+                end
+            end
+        else
+            drop.selectedIndex = nil
+        end
+    end
+    shouldUpdate = true
+end
+
+updateContentLayout()
+
+local function handleToggleClick(catName)
+    local toggle = toggleWidgets[catName]
+    if not toggle then return end
+    
+    toggle.value = not toggle.value
+    enabledCategories[catName] = toggle.value
+    toggle.enabled.Text = toggle.value and "ON" or "OFF"
+    toggle.enabled.Color = toggle.value and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    
+    if not toggle.value then
+        for _, cat in ipairs(categoryConfig) do
+            if cat.name == catName then
+                for _, fName in ipairs(cat.folders) do activeSpoofs[fName] = nil end
+                break
+            end
+        end
+    else
+        for i, cat in ipairs(categoryConfig) do
+            if cat.name == catName then
+                local drop = dropdowns[i]
+                if drop and drop.selectedIndex then
+                    local selectedPack = drop.optionsData[drop.selectedIndex]
+                    if selectedPack then
+                        for _, fName in ipairs(cat.folders) do activeSpoofs[fName] = nil end
+                        for fName, idsList in pairs(selectedPack.foldersData) do activeSpoofs[fName] = idsList end
+                    end
+                end
+                break
+            end
+        end
+    end
+    shouldUpdate = true
+end
+
+local dragging = false
+local dragStart = nil
+local windowStartPos = nil
+local clickDebounce = false
+
+-- Yazma modunu dinleyen özel fonksiyon
+local function checkKeyboardInputForNaming()
+    if not editingProfileIndex then return end
+    local prof = globalConfigsList[editingProfileIndex]
+    if not prof then return end
+    
+    -- Backspace algılama (Karakter silme)
+    if iskeypressed(8) then 
+        if not _G.backspaceDebounce then
+            _G.backspaceDebounce = true
+            if #prof.Name > 0 then
+                prof.Name = string.sub(prof.Name, 1, #prof.Name - 1)
+                updateContentLayout()
+            end
+        end
+    else
+        _G.backspaceDebounce = false
+    end
+    
+    -- Enter algılama (Kaydetme ve çıkış)
+    if iskeypressed(13) then
+        if #prof.Name == 0 then prof.Name = "Config " .. editingProfileIndex end
+        editingProfileIndex = nil
+        saveAllConfigsToFile()
+        updateContentLayout()
+        task.wait(0.2)
+        return
+    end
+    
+    -- Karakterleri ve Sayıları döngüsel yakalama (Drawing API Altyapısı için basit ASCII)
+    if not _G.keyInputDebounce then
+        for vk = 0x30, 0x5A do -- Sayılar ve Harfler
+            if iskeypressed(vk) then
+                _G.keyInputDebounce = true
+                local char = string.char(vk)
+                -- Shift basılı değilse harfleri küçült
+                if not (iskeypressed(0x10)) then char = string.lower(char) end
+                prof.Name = prof.Name .. char
+                updateContentLayout()
+                break
+            end
+        end
+        -- Boşluk tuşu (Space)
+        if iskeypressed(32) then
+            _G.keyInputDebounce = true
+            prof.Name = prof.Name .. " "
+            updateContentLayout()
+        end
+    else
+        local absoluteReleased = true
+        for vk = 0x30, 0x5A do if iskeypressed(vk) then absoluteReleased = false end end
+        if iskeypressed(32) then absoluteReleased = false end
+        if absoluteReleased then _G.keyInputDebounce = false end
+    end
+end
+
+task.spawn(function()
+    local mouse = game:GetService("Players").LocalPlayer:GetMouse()
+    
+    while true do
+        local mx, my = mouse.X, mouse.Y
+        
+        -- Eğer bir profili adlandırıyorsak klavyeyi dinle
+        if editingProfileIndex then
+            checkKeyboardInputForNaming()
+            task.wait()
+            continue
+        end
+        
+        if iskeypressed(TOGGLE_KEYCODE) then
+            if not toggleDebounce then
+                toggleDebounce = true
+                isUIVisible = not isUIVisible
+                if not isUIVisible then dragging = false end
+                updateContentLayout()
+            end
+        else
+            toggleDebounce = false
+        end
+        
+        if iskeypressed(0x1B) and isWaitingForKey then
+            isWaitingForKey = false
+            keybindToggle.isWaiting = false
+            keybindToggle.value.Text = getKeyName(TOGGLE_KEYCODE)
+            keybindToggle.value.Color = Color3.fromRGB(0, 255, 255)
+            updateContentLayout()
+        end
+
+        if not isUIVisible then
+            task.wait()
+            continue
+        end
+
+        local insideTitle =
+            mx >= titleBar.Position.X and mx <= titleBar.Position.X + titleBar.Size.X and
+            my >= titleBar.Position.Y and my <= titleBar.Position.Y + titleBar.Size.Y
+
+        if insideTitle and ismouse1pressed() and not dragging and not isWaitingForKey then
+            dragging = true
+            dragStart = Vector2.new(mx, my)
+            windowStartPos = titleBar.Position
+        end
+
+        if ismouse1pressed() then
+            if not clickDebounce then
+                clickDebounce = true
+                
+                if not dragging and not isWaitingForKey then
+                    local titleX = titleBar.Position.X
+                    local titleY = titleBar.Position.Y
+                    local startContentY = titleY + titleHeight
+                    local checkY = startContentY + 12
+                    local clickedInsideDropdown = false
+                    
+                    for i, cat in ipairs(categoryConfig) do
+                        local rowTop = checkY - (gap/2)
+                        local rowBottom = checkY + fontSize + (gap/2)
+                        
+                        if mx >= titleX and mx < titleX + width and my >= rowTop and my < rowBottom then
+                            local toggleX = titleX + leftPadding
+                            if mx >= toggleX and mx < toggleX + 70 then
+                                handleToggleClick(cat.name)
+                            else
+                                clickedInsideDropdown = true
+                                activeMenuIndex = (activeMenuIndex == i) and nil or i
+                            end
+                            updateContentLayout()
+                            break
+                        end
+                        checkY = checkY + fontSize + gap
+                    end
+                    
+                    if not clickedInsideDropdown then
+                        local keyY = startContentY + (#categoryConfig * (fontSize + gap)) + 12
+                        if mx >= titleX + leftPadding and mx < titleX + leftPadding + 75 and my >= keyY - 4 and my < keyY + fontSize + 4 then
+                            isWaitingForKey = true
+                            keybindToggle.isWaiting = true
+                            keybindToggle.value.Text = "press key..."
+                            keybindToggle.value.Color = Color3.fromRGB(255, 255, 0)
+                            updateContentLayout()
+                        end
+                    end
+                    
+                    if mx >= addConfigBtn.bg.Position.X and mx < addConfigBtn.bg.Position.X + addConfigBtn.bg.Size.X and
+                       my >= addConfigBtn.bg.Position.Y and my < addConfigBtn.bg.Position.Y + addConfigBtn.bg.Size.Y then
+                        if #globalConfigsList < 5 then
+                            local newIdx = #globalConfigsList + 1
+                            local newProfile = captureCurrentStateData("Config " .. newIdx)
+                            table.insert(globalConfigsList, newProfile)
+                            saveAllConfigsToFile()
+                            updateContentLayout()
+                        end
+                    end
+                    
+                    for i = 1, 5 do
+                        local row = profileRows[i]
+                        if globalConfigsList[i] and row.bg.Visible then
+                            
+                            -- YENİ İSİM ALANINA TIKLAMA TESPİTİ (Yeniden Adlandırma)
+                            if mx >= row.bg.Position.X and mx < row.loadBtn.bg.Position.X - 4 and
+                               my >= row.bg.Position.Y and my < row.bg.Position.Y + row.bg.Size.Y then
+                                editingProfileIndex = i
+                                globalConfigsList[i].Name = "" -- Temizle ve odağı ver
+                                updateContentLayout()
+                                break
+                            end
+                            
+                            -- Load (Yeşil)
+                            if mx >= row.loadBtn.bg.Position.X and mx < row.loadBtn.bg.Position.X + row.loadBtn.bg.Size.X and
+                               my >= row.loadBtn.bg.Position.Y and my < row.loadBtn.bg.Position.Y + row.loadBtn.bg.Size.Y then
+                                applyStateData(globalConfigsList[i])
+                                updateContentLayout()
+                                break
+                            end
+                            -- Update (Turuncu)
+                            if mx >= row.updateBtn.bg.Position.X and mx < row.updateBtn.bg.Position.X + row.updateBtn.bg.Size.X and
+                               my >= row.updateBtn.bg.Position.Y and my < row.updateBtn.bg.Position.Y + row.updateBtn.bg.Size.Y then
+                                globalConfigsList[i] = captureCurrentStateData(globalConfigsList[i].Name)
+                                saveAllConfigsToFile()
+                                break
+                            end
+                            -- Delete (Kırmızı)
+                            if mx >= row.deleteBtn.bg.Position.X and mx < row.deleteBtn.bg.Position.X + row.deleteBtn.bg.Size.X and
+                               my >= row.deleteBtn.bg.Position.Y and my < row.deleteBtn.bg.Position.Y + row.deleteBtn.bg.Size.Y then
+                                table.remove(globalConfigsList, i)
+                                saveAllConfigsToFile()
+                                updateContentLayout()
+                                break
+                            end
+                        end
+                    end
+                    
+                    if not clickedInsideDropdown and activeMenuIndex then
+                        local menuX = menuContent.Position.X
+                        local menuY = menuContent.Position.Y
+                        local targetDrop = dropdowns[activeMenuIndex]
+                        
+                        for j = 1, #targetDrop.optionsData do
+                            local colIndex = math.floor((j - 1) / SUB_MENU_MAX_ROWS)
+                            local rowIndex = (j - 1) % SUB_MENU_MAX_ROWS
+                            
+                            local cellLeft = menuX + (colIndex * SUB_MENU_COL_WIDTH)
+                            local cellRight = cellLeft + SUB_MENU_COL_WIDTH
+                            local cellTop = menuY + 12 + (rowIndex * (fontSize + rowSpacing)) - (rowSpacing/2)
+                            local cellBottom = cellTop + fontSize + rowSpacing
+                            
+                            if mx >= cellLeft and mx < cellRight and my >= cellTop and my < cellBottom then
+                                targetDrop.selectedIndex = j
+                                local catName = targetDrop.baseName
+                                if enabledCategories[catName] then
+                                    local selectedFolders = targetDrop.optionsData[j].foldersData
+                                    for _, fName in ipairs(targetDrop.governedFolders) do activeSpoofs[fName] = nil end
+                                    for fName, idsList in pairs(selectedFolders) do activeSpoofs[fName] = idsList end
+                                    shouldUpdate = true
+                                end
+                                updateContentLayout()
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            clickDebounce = false
+        end
+
+        if isWaitingForKey then
+            for vk = 0x01, 0xFE do
+                if iskeypressed(vk) then
+                    if isMouseButton(vk) then
+                        keybindToggle.value.Text = "no mouse"
+                        keybindToggle.value.Color = Color3.fromRGB(255, 0, 0)
+                        task.wait(0.3)
+                        keybindToggle.value.Text = "press key..."
+                        keybindToggle.value.Color = Color3.fromRGB(255, 255, 0)
+                        break
+                    elseif vk ~= 0x1B then
+                        TOGGLE_KEYCODE = vk
+                        isWaitingForKey = false
+                        keybindToggle.isWaiting = false
+                        keybindToggle.value.Text = getKeyName(vk)
+                        keybindToggle.value.Color = Color3.fromRGB(0, 255, 255)
+                        updateContentLayout()
+                        break
+                    end
+                end
+            end
+        end
+
+        if dragging then
+            if not ismouse1pressed() then
+                dragging = false
+            else
+                local delta = Vector2.new(mx - dragStart.X, my - dragStart.Y)
+                local newX = windowStartPos.X + delta.X
+                local newY = windowStartPos.Y + delta.Y
+
+                titleBar.Position = Vector2.new(newX, newY)
+                local baseY = newY + titleHeight/2 - fontSize/2
+                title1.Position = Vector2.new(newX + leftPadding, baseY)
+                updateContentLayout()
+            end
+        end
+
+        if activeMenuIndex and not dragging then
+            local menuX = menuContent.Position.X
+            local menuY = menuContent.Position.Y
+            local targetDrop = dropdowns[activeMenuIndex]
+
+            for j, drawing in ipairs(targetDrop.optionDrawings) do
+                local colIndex = math.floor((j - 1) / SUB_MENU_MAX_ROWS)
+                local rowIndex = (j - 1) % SUB_MENU_MAX_ROWS
+                
+                local cellLeft = menuX + (colIndex * SUB_MENU_COL_WIDTH)
+                local cellRight = cellLeft + SUB_MENU_COL_WIDTH
+                local cellTop = menuY + 12 + (rowIndex * (fontSize + rowSpacing)) - (rowSpacing/2)
+                local cellBottom = cellTop + fontSize + rowSpacing
+                
+                local isHovering = (mx >= cellLeft and mx < cellRight and my >= cellTop and my < cellBottom)
+                local isSelected = (j == targetDrop.selectedIndex)
+
+                if isHovering or isSelected then
+                    if drawing.Transparency ~= 1.0 or drawing.Text ~= "> " .. targetDrop.optionsData[j].name then
+                        drawing.Text = "> " .. targetDrop.optionsData[j].name
+                        drawing.Transparency = 1.0
+                    end
+                else
+                    if drawing.Transparency ~= 0.7 or drawing.Text ~= targetDrop.optionsData[j].name then
+                        drawing.Text = targetDrop.optionsData[j].name
+                        drawing.Transparency = 0.7
+                    end
+                end
+            end
+        end
+
+        task.wait()
+    end
+end)
+
+while true do task.wait() end
