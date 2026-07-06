@@ -13,7 +13,6 @@ local keybindLabel = nil
 
 local TOGGLE_KEYCODE = 115
 
--- CONFIG DOSYA ADI
 local CONFIG_FILE = "anim_changer_multiconfig.json"
 
 local function resolveDynamicOffsets()
@@ -154,7 +153,7 @@ local AnimationDatabase = {
         Sneaky = "1132506407", SuperHero = "10921297391", ["Adidas Community"] = "109346520324160", Levitation = "10921139478", ["Catwalk Glam"] = "98854111361360", Knight = "10921125935", Pirate = "750785176", Bold = "16738339817", ["Sports (Adidas)"] = "18537387180", Stylized = "4708190607", Astronaut = "891663592", Cartoony = "10921079380", ["Wicked (Popular)"] = "113199415118199", Mage = "707894699", ["Wicked \"Dancing Through Life\""] = "129183123083281", ["Unboxed By Amazon"] = "129126268464847", R6 = "12518152696", ["Glow Motion"] = "112946194103503", Rthro = "10921265698", CowBoy = "1014411816", ["No Boundaries (Walmart)"] = "18747071682", Werewolf = "10921341319", NFL = "79090109939093", OldSchool = "10921244018", Stylish = "10921281964", Elder = "10921110146", Bubbly = "910030921", Patrol = "1151221899", Toy = "10921310341", Confident = "1070012133", Ninja = "656118341", Popstar = "1212998578", Vampire = "10921325443", Princess = "941025398", Robot = "10921253767",
     },
     Fall = {
-        Robot = "616087089", Patrol = "1148863382", ["Adidas Community"] = "98600215928904", Levitation = "616005863", ["Catwalk Glam"] = "92294537340807", Knight = "10921122579", Pirate = "750780242", Bold = "16738333171", ["Sports (Adidas)"] = "18537367238", ["[VOTE] skydiving"] = "102674302534126", Zombie = "616157476", Astronaut = "891617961", Cartoony = "742637151", Ninja = "656115606", Confident = "1069973677", ["Wicked \"Dancing Through Life\""] = "78147885297412", ["Unboxed By Amazon"] = "94788218468396", R6 = "12520972571", ["Glow Motion"] = "98070939608691", reset = "0", ["[UGC] skydiving"] = "102674302534126", ["R15 Reanimated"] = "4211216152", Rthro = "10921262864", ["No Boundaries (Walmart)"] = "18747062535", Werewolf = "1083189019", ["[VOTE] TPose"] = "139027266704971", R15Dance2B = {"507776720"}, ["r6 run but jump"] = "12518152696", Mage = "707829716", Toy = "782846423", Superhero = "10921293373", Vampire = "1083443587", NFL = "129773241321032", OldSchool = "10921241244", ["Stylized Female"] = "4708186162", Elder = "10921105765", Bubbly = "910001910", Stylish = "616134815", Sneaky = "1132469004", ["Wicked (Popular)"] = "121152442762481", ["[VOTE] Animal"] = "77069224396280", Popstar = "1212900995", ["Default Retarget"] = "110205622518029", Princess = "941000007", Cowboy = "1014384571",
+        Robot = "616087089", Patrol = "1148863382", ["Adidas Community"] = "98600215928904", Levitation = "616005863", ["Catwalk Glam"] = "92294537340807", Knight = "10921122579", Pirate = "750780242", Bold = "16738333171", ["Sports (Adidas)"] = "18537367238", ["[VOTE] skydiving"] = "102674302534126", Zombie = "616157476", Astronaut = "891617961", Cartoony = "742637151", Ninja = "656115606", Confident = "1069973677", ["Wicked \"Dancing Through Life\""] = "78147885297412", ["Unboxed By Amazon"] = "94788218468396", R6 = "12520972571", ["Glow Motion"] = "98070939608691", reset = "0", ["[UGC] skydiving"] = "102674302534126", ["R15 Reanimated"] = "4211216152", Rthro = "10921262864", ["No Boundaries (Walmart)"] = "18747062535", Werewolf = "1083189019", ["[VOTE] TPose"] = "139027266704971", R15Dance2B = {"507776720"}, ["r6 run but fall"] = "12518152696", Mage = "707829716", Toy = "782846423", Superhero = "10921293373", Vampire = "1083443587", NFL = "129773241321032", OldSchool = "10921241244", ["Stylized Female"] = "4708186162", Elder = "10921105765", Bubbly = "910001910", Stylish = "616134815", Sneaky = "1132469004", ["Wicked (Popular)"] = "121152442762481", ["[VOTE] Animal"] = "77069224396280", Popstar = "1212900995", ["Default Retarget"] = "110205622518029", Princess = "941000007", Cowboy = "1014384571",
     },
     Run = {
         Robot = "10921250460", Patrol = "1150967949", ["Drooling Zombie"] = "3489173414", ["Catwalk Glam"] = "81024476153754", ["[UGC] Naruto"] = "104074120169874", ["Adidas Community"] = "82598234841035", ["Heavy Run (Udzal / Borock)"] = "3236836670", Runaway = "78510387198062", ["[UGC] ball"] = "132499588684957", Knight = "10921121197", Pirate = "750783738", Bold = "16738337225", ["Sports (Adidas)"] = "18537384940", Zombie = "616163682", ["[UGC] DCEU Flash"] = "107994680200921", Toy = "10921306285", ["[UGC] Flipping"] = "124427738251511", Cartoony = "10921076136", Ninja = "656118852", ["(UGC) Dog"] = "130072963359721", ["Wicked \"Dancing Through Life\""] = "135515454877967", Superhero = "10921291831", ["Unboxed By Amazon"] = "134824450619865", Sneaky = "1132494274", ["fake wicked"] = "138992096476836", R6 = "12518152696", ["Glow Motion"] = "101925097435036", Bubbly = "1092057244", furry = "102269417125238", ["[UGC] chibi"] = "85887415033585", ["R15 Reanimated"] = "4211220381", Rthro = "10921261968", Ghost = "616013216", ["2016 Animation (mm2)"] = "387947975", Confident = "1070001516", bunnyhop = "109161394574390", ["No Boundaries (Walmart)"] = "18747070484", ["(UGC) Retro"] = "107806791584829", Werewolf = "10921336997", ["[UGC] Girly"] = "128578785610052", ["(UGC) Retro Zombie"] = "140703855480494", Stylish = "10921276116", Levitation = "616010382", ["(UGC) Soccer"] = "116881956670910", MrToilet = "4417979645", ["(UGC) Pride"] = "116462200642360", Vampire = "10921320299", NFL = "117333533048078", OldSchool = "10921240218", Mage = "10921148209", Elder = "10921104374", ["Stylized Female"] = "4708192705", ["Wicked (Popular)"] = "72301599441680", bhop = "120051666454351", Astronaut = "10921039308", Popstar = "1212980348", ["Default Retarget"] = "102294264237491", Princess = "941015281", Cowboy = "1014401683",
@@ -287,11 +286,8 @@ local function applyActiveAnimations()
     memory_write("byte", hum.Address + PLATFORMSTAND_OFFSET, 0)
 end
 
--- ==========================================
--- ÇOKLU CONFIG (PROFIL) VE EDITING DURUMU
--- ==========================================
 local globalConfigsList = {} 
-local editingProfileIndex = nil -- Yeniden adlandırılan slotun indexi (Yoksa nil)
+local editingProfileIndex = nil
 
 local function saveAllConfigsToFile()
     if writefile then
@@ -635,7 +631,6 @@ local function updateContentLayout()
             row.bg.Position = Vector2.new(titleX + 12, currentY)
             row.bg.Size = Vector2.new(width - 24, 38)
             
-            -- Eğer slot düzenleme modundaysa ismi yeşil gösteriyoruz ve sonuna "_" koyuyoruz
             if editingProfileIndex == i then
                 row.title.Text = configData.Name .. "_"
                 row.title.Color = Color3.fromRGB(0, 255, 0)
@@ -814,13 +809,11 @@ local dragStart = nil
 local windowStartPos = nil
 local clickDebounce = false
 
--- Yazma modunu dinleyen özel fonksiyon
 local function checkKeyboardInputForNaming()
     if not editingProfileIndex then return end
     local prof = globalConfigsList[editingProfileIndex]
     if not prof then return end
     
-    -- Backspace algılama (Karakter silme)
     if iskeypressed(8) then 
         if not _G.backspaceDebounce then
             _G.backspaceDebounce = true
@@ -833,7 +826,6 @@ local function checkKeyboardInputForNaming()
         _G.backspaceDebounce = false
     end
     
-    -- Enter algılama (Kaydetme ve çıkış)
     if iskeypressed(13) then
         if #prof.Name == 0 then prof.Name = "Config " .. editingProfileIndex end
         editingProfileIndex = nil
@@ -843,20 +835,17 @@ local function checkKeyboardInputForNaming()
         return
     end
     
-    -- Karakterleri ve Sayıları döngüsel yakalama (Drawing API Altyapısı için basit ASCII)
     if not _G.keyInputDebounce then
-        for vk = 0x30, 0x5A do -- Sayılar ve Harfler
+        for vk = 0x30, 0x5A do
             if iskeypressed(vk) then
                 _G.keyInputDebounce = true
                 local char = string.char(vk)
-                -- Shift basılı değilse harfleri küçült
                 if not (iskeypressed(0x10)) then char = string.lower(char) end
                 prof.Name = prof.Name .. char
                 updateContentLayout()
                 break
             end
         end
-        -- Boşluk tuşu (Space)
         if iskeypressed(32) then
             _G.keyInputDebounce = true
             prof.Name = prof.Name .. " "
@@ -876,7 +865,6 @@ task.spawn(function()
     while true do
         local mx, my = mouse.X, mouse.Y
         
-        -- Eğer bir profili adlandırıyorsak klavyeyi dinle
         if editingProfileIndex then
             checkKeyboardInputForNaming()
             task.wait()
@@ -972,30 +960,26 @@ task.spawn(function()
                         local row = profileRows[i]
                         if globalConfigsList[i] and row.bg.Visible then
                             
-                            -- YENİ İSİM ALANINA TIKLAMA TESPİTİ (Yeniden Adlandırma)
                             if mx >= row.bg.Position.X and mx < row.loadBtn.bg.Position.X - 4 and
                                my >= row.bg.Position.Y and my < row.bg.Position.Y + row.bg.Size.Y then
                                 editingProfileIndex = i
-                                globalConfigsList[i].Name = "" -- Temizle ve odağı ver
+                                globalConfigsList[i].Name = ""
                                 updateContentLayout()
                                 break
                             end
                             
-                            -- Load (Yeşil)
                             if mx >= row.loadBtn.bg.Position.X and mx < row.loadBtn.bg.Position.X + row.loadBtn.bg.Size.X and
                                my >= row.loadBtn.bg.Position.Y and my < row.loadBtn.bg.Position.Y + row.loadBtn.bg.Size.Y then
                                 applyStateData(globalConfigsList[i])
                                 updateContentLayout()
                                 break
                             end
-                            -- Update (Turuncu)
                             if mx >= row.updateBtn.bg.Position.X and mx < row.updateBtn.bg.Position.X + row.updateBtn.bg.Size.X and
                                my >= row.updateBtn.bg.Position.Y and my < row.updateBtn.bg.Position.Y + row.updateBtn.bg.Size.Y then
                                 globalConfigsList[i] = captureCurrentStateData(globalConfigsList[i].Name)
                                 saveAllConfigsToFile()
                                 break
                             end
-                            -- Delete (Kırmızı)
                             if mx >= row.deleteBtn.bg.Position.X and mx < row.deleteBtn.bg.Position.X + row.deleteBtn.bg.Size.X and
                                my >= row.deleteBtn.bg.Position.Y and my < row.deleteBtn.bg.Position.Y + row.deleteBtn.bg.Size.Y then
                                 table.remove(globalConfigsList, i)
