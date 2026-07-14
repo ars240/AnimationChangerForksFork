@@ -13,7 +13,7 @@ local isWaitingForKey = false
 local keybindLabel = nil
 
 local TOGGLE_KEYCODE = 115
-local MAX_CONFIGS = 5
+local MAX_CONFIGS = 50
 local CONFIG_FILE = "anim_changer_multiconfig.json"
 
 local function resolveDynamicOffsets()
@@ -213,7 +213,15 @@ for packName, animList in pairs(rawPacks) do
         end
     end
     for catName, foldersMap in pairs(catDataMap) do
-        table.insert(categoryOptions[catName], { name = baseName, foldersData = foldersMap })
+        local existingOpt = nil
+        for _, opt in ipairs(categoryOptions[catName]) do
+            if opt.name == baseName then existingOpt = opt; break end
+        end
+        if existingOpt then
+            for fName, ids in pairs(foldersMap) do existingOpt.foldersData[fName] = ids end
+        else
+            table.insert(categoryOptions[catName], { name = baseName, foldersData = foldersMap })
+        end
     end
 end
 
@@ -254,6 +262,7 @@ local toggleWidgets = {}
 
 for _, cat in ipairs(categoryConfig) do enabledCategories[cat.name] = true end
 
+local originalAnimations = {}
 local function applyActiveAnimations()
     local player = game:GetService("Players").LocalPlayer
     if not player or not player.Character then return end
@@ -264,21 +273,39 @@ local function applyActiveAnimations()
     memory_write("byte", hum.Address + PLATFORMSTAND_OFFSET, 1)
     task.wait(0.1)
     
-    for folderName, idArray in pairs(activeSpoofs) do
-        local folder = animate:FindFirstChild(folderName)
-        if folder then
-            local anims = {}
-            for _, child in ipairs(folder:GetChildren()) do
-                if child:IsA("Animation") then table.insert(anims, child) end
-            end
-            for i, targetId in ipairs(idArray) do
-                local animObj = anims[i]
-                if animObj then
-                    local newIdStr = "http://www.roblox.com/asset/?id=" .. tostring(targetId)
-                    local addr = animObj.Address + ANIMATION_ID_OFFSET
-                    if read_std_string(addr) ~= newIdStr then
-                        inflate_capacity_if_needed(animObj, newIdStr)
-                        write_std_string(addr, newIdStr)
+    for _, cat in ipairs(categoryConfig) do
+        local isEnabled = enabledCategories[cat.name]
+        for _, folderName in ipairs(cat.folders or {}) do
+            local folder = animate:FindFirstChild(folderName)
+            if folder then
+                local anims = {}
+                for _, child in ipairs(folder:GetChildren()) do
+                    if child:IsA("Animation") then table.insert(anims, child) end
+                end
+                
+                if not originalAnimations[folderName] then
+                    originalAnimations[folderName] = {}
+                    for i, animObj in ipairs(anims) do
+                        local addr = animObj.Address + ANIMATION_ID_OFFSET
+                        originalAnimations[folderName][i] = read_std_string(addr)
+                    end
+                end
+                
+                local idArray = activeSpoofs[folderName]
+                for i, animObj in ipairs(anims) do
+                    local targetIdStr
+                    if isEnabled and idArray and idArray[i] then
+                        targetIdStr = "http://www.roblox.com/asset/?id=" .. tostring(idArray[i])
+                    else
+                        targetIdStr = originalAnimations[folderName][i] or ""
+                    end
+                    
+                    if targetIdStr ~= "" then
+                        local addr = animObj.Address + ANIMATION_ID_OFFSET
+                        if read_std_string(addr) ~= targetIdStr then
+                            inflate_capacity_if_needed(animObj, targetIdStr)
+                            write_std_string(addr, targetIdStr)
+                        end
                     end
                 end
             end
@@ -337,414 +364,256 @@ task.spawn(function()
     end
 end)
 
--- CLEAN, LUXURY, SEXY UI THEME
-local width = 360
-local titleHeight = 38
-local startX, startY = 80, 80
-local leftPadding = 20
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- =====================================================
+-- MODERN UI v16 - Fix Submenu Drag Floating & Padding
+-- =====================================================
+local mouse = game:GetService("Players").LocalPlayer:GetMouse()
 
-local bgColor = Color3.fromRGB(15, 15, 17)       -- Deep Onyx
-local titleBgColor = Color3.fromRGB(10, 10, 12)  -- Darker Top Bar
-local textColor = Color3.fromRGB(235, 235, 245)  -- Off-white
-local accentColor = Color3.fromRGB(187, 134, 252) -- Soft Luxury Purple
-
-local charWidth = 8
-local fontSize = 16
-local gap = 14         
-local rowSpacing = 12  
-local GUI_FONT = Drawing.Fonts.System
-
-local titleBar = Drawing.new("Square")
-titleBar.Position = Vector2.new(startX, startY)
-titleBar.Size = Vector2.new(width, titleHeight)
-titleBar.Color = titleBgColor
-titleBar.Transparency = 0.95
-titleBar.Filled = true
-titleBar.Visible = true
-
-local function makeTitleText(txt, xOff, opacity, clr)
-    local t = Drawing.new("Text")
-    t.Text = txt
-    t.Size = fontSize + 2
-    t.Color = clr or textColor
-    t.Transparency = opacity
-    t.Font = GUI_FONT
-    t.Center = false
-    t.Outline = false                 
-    t.Visible = true
-    t.Position = Vector2.new(startX + xOff, startY + (titleHeight/2) - ((fontSize+2)/2))
-    return t
-end
-
-local title1 = makeTitleText("Animations", leftPadding, 1.0, accentColor)
-local title2 = makeTitleText("R15", leftPadding + 110, 0.7, textColor)
-
-local content = Drawing.new("Square")
-content.Color = bgColor
-content.Transparency = 0.95
-content.Filled = true
-content.Visible = true
-
-local menuContent = Drawing.new("Square")
-menuContent.Color = bgColor
-menuContent.Transparency = 0.95
-menuContent.Filled = true
-menuContent.Visible = false
-
-local function createToggle(catName, label, default)
-    local toggle = {
-        value = default,
-        label = Drawing.new("Text"),
-        enabled = Drawing.new("Text"),
+local Themes = {
+    Navy = {
+        C_BG     = Color3.fromRGB(12, 16, 28),
+        C_TITLE  = Color3.fromRGB(8, 11, 20),
+        C_ROW    = Color3.fromRGB(18, 24, 44),
+        C_ACCENT = Color3.fromRGB(0, 210, 255),
+        C_GREEN  = Color3.fromRGB(0, 190, 110),
+        C_ORANGE = Color3.fromRGB(255, 155, 35),
+        C_RED    = Color3.fromRGB(240, 55, 55),
+        C_TEXT   = Color3.fromRGB(220, 235, 255),
+        C_MUTED  = Color3.fromRGB(90, 115, 155)
+    },
+    Ruby = {
+        C_BG     = Color3.fromRGB(24, 10, 12),
+        C_TITLE  = Color3.fromRGB(16, 6, 8),
+        C_ROW    = Color3.fromRGB(36, 16, 20),
+        C_ACCENT = Color3.fromRGB(255, 60, 80),
+        C_GREEN  = Color3.fromRGB(40, 200, 100),
+        C_ORANGE = Color3.fromRGB(255, 140, 40),
+        C_RED    = Color3.fromRGB(255, 40, 40),
+        C_TEXT   = Color3.fromRGB(255, 220, 220),
+        C_MUTED  = Color3.fromRGB(140, 80, 90)
+    },
+    Emerald = {
+        C_BG     = Color3.fromRGB(10, 20, 16),
+        C_TITLE  = Color3.fromRGB(6, 14, 10),
+        C_ROW    = Color3.fromRGB(16, 32, 24),
+        C_ACCENT = Color3.fromRGB(0, 255, 140),
+        C_GREEN  = Color3.fromRGB(0, 200, 100),
+        C_ORANGE = Color3.fromRGB(255, 180, 40),
+        C_RED    = Color3.fromRGB(240, 60, 60),
+        C_TEXT   = Color3.fromRGB(220, 255, 230),
+        C_MUTED  = Color3.fromRGB(80, 130, 100)
+    },
+    Amethyst = {
+        C_BG     = Color3.fromRGB(16, 12, 28),
+        C_TITLE  = Color3.fromRGB(10, 8, 20),
+        C_ROW    = Color3.fromRGB(24, 18, 44),
+        C_ACCENT = Color3.fromRGB(180, 80, 255),
+        C_GREEN  = Color3.fromRGB(40, 210, 120),
+        C_ORANGE = Color3.fromRGB(255, 160, 50),
+        C_RED    = Color3.fromRGB(255, 60, 80),
+        C_TEXT   = Color3.fromRGB(235, 220, 255),
+        C_MUTED  = Color3.fromRGB(110, 90, 150)
     }
-    
-    toggle.label.Text = label
-    toggle.label.Size = fontSize
-    toggle.label.Color = textColor
-    toggle.label.Transparency = 0.7
-    toggle.label.Font = GUI_FONT
-    toggle.label.Center = false
-    toggle.label.Outline = false
-    toggle.label.Visible = true
-    
-    toggle.enabled.Text = default and "ON" or "OFF"
-    toggle.enabled.Size = fontSize
-    toggle.enabled.Color = default and accentColor or Color3.fromRGB(120, 120, 130)
-    toggle.enabled.Transparency = 1.0
-    toggle.enabled.Font = GUI_FONT
-    toggle.enabled.Center = false
-    toggle.enabled.Outline = false
-    toggle.enabled.Visible = true
-    
-    return toggle
+}
+local ThemeOrder = {"Navy", "Ruby", "Emerald", "Amethyst"}
+local C = Themes.Navy 
+local currentThemeName = "Navy"
+
+pcall(function()
+    if isfile and isfile("matcha_theme.txt") then
+        local t = readfile("matcha_theme.txt")
+        if Themes[t] then
+            C = Themes[t]
+            currentThemeName = t
+        end
+    end
+end)
+
+local function saveTheme()
+    pcall(function() if writefile then writefile("matcha_theme.txt", currentThemeName) end end)
 end
 
-for _, cat in ipairs(categoryConfig) do
-    local toggle = createToggle(cat.name, cat.name, true)
-    toggleWidgets[cat.name] = toggle
+local function showNotification(msg)
+    local _nq = _G._nq or {}
+    _G._nq = _nq
+    table.insert(_nq, msg)
+    if _G._nr then return end
+    _G._nr = true
+    task.spawn(function()
+        while #_nq > 0 do
+            local m   = table.remove(_nq, 1)
+            local bw, bh = 240, 38
+            local camX = workspace.CurrentCamera.ViewportSize.X
+            local camY = workspace.CurrentCamera.ViewportSize.Y
+            local toX  = camX - bw - 20
+            local fromX= camX + 10
+            local yy   = camY - bh - 20
+
+            local nbg = Drawing.new("Square")
+            nbg.Filled=true; nbg.Color=C.C_TITLE
+            nbg.Size=Vector2.new(bw,bh); nbg.Transparency=0
+            nbg.Visible=true; nbg.Position=Vector2.new(fromX,yy)
+            pcall(function() nbg.Corner=6 end)
+            local nbar=Drawing.new("Square")
+            nbar.Filled=true; nbar.Color=C.C_ACCENT
+            nbar.Size=Vector2.new(4,bh); nbar.Transparency=0; nbar.Visible=true
+            local ntxt=Drawing.new("Text")
+            ntxt.Text=tostring(m); ntxt.Size=15
+            ntxt.Color=C.C_TEXT
+            ntxt.Font=Drawing.Fonts.Plex or 2
+            ntxt.Transparency=0; ntxt.Visible=true
+            local nprog=Drawing.new("Square")
+            nprog.Filled=true; nprog.Color=C.C_ACCENT
+            nprog.Size=Vector2.new(bw,2); nprog.Transparency=0; nprog.Visible=true
+
+            for i=1,12 do
+                local e=1-(1-i/12)^2; local cx=fromX+(toX-fromX)*e
+                nbg.Position=Vector2.new(cx,yy); nbar.Position=Vector2.new(cx,yy)
+                ntxt.Position=Vector2.new(cx+16,yy+11); nprog.Position=Vector2.new(cx,yy+bh-2)
+                nbg.Transparency=e*0.95; nbar.Transparency=e; ntxt.Transparency=e; nprog.Transparency=e
+                task.wait(0.01)
+            end
+            for i=1,90 do nprog.Size=Vector2.new(bw*(1-i/90),2); task.wait(0.01) end
+            for i=1,12 do
+                local e=(i/12)^2; local cx=toX+(fromX-toX)*e
+                nbg.Position=Vector2.new(cx,yy); nbar.Position=Vector2.new(cx,yy)
+                ntxt.Position=Vector2.new(cx+16,yy+11); nprog.Position=Vector2.new(cx,yy+bh-2)
+                nbg.Transparency=(1-e)*0.95; nbar.Transparency=1-e; ntxt.Transparency=1-e; nprog.Transparency=1-e
+                task.wait(0.01)
+            end
+            nbg:Remove(); nbar:Remove(); ntxt:Remove(); nprog:Remove()
+            task.wait(0.05)
+        end
+        _G._nr = false
+    end)
 end
 
-local keybindToggle = {
-    label = Drawing.new("Text"),
-    value = Drawing.new("Text"),
-    hint = Drawing.new("Text"),
-    isWaiting = false
+-- =====================================================
+-- CONSTANTS & THEMES
+-- =====================================================
+local CR   = 6
+local W    = 720   
+local LW   = 330   
+local RW   = 375   
+local GAP  = 15    
+local TH   = 48    
+local SX, SY = 200, 200
+local LP   = 18    
+local FS   = 15    
+local RH   = 32    
+local PRH  = 48    
+local GF   = Drawing.Fonts.Plex or 2
+local SUB_ROWS = 15
+local SUB_COL_W = 215 
+local VISIBLE_PROFILES = 5  
+
+local startX, startY = SX, SY
+local scrollOffset = 0
+local visualScrollPct = 0
+local draggingScroll = false
+
+local globalAlpha = 0 
+local targetAlpha = isUIVisible and 1 or 0
+
+local function hoverCol(clr)
+    return Color3.new(math.min(1, clr.R*1.3), math.min(1, clr.G*1.3), math.min(1, clr.B*1.3))
+end
+
+local function mkS()
+    local s=Drawing.new("Square"); s.Filled=true
+    s.Visible=false; pcall(function() s.Corner=CR end); return s
+end
+local function mkOut()
+    local s=Drawing.new("Square"); s.Filled=false; s.Thickness=1
+    s.Visible=false; pcall(function() s.Corner=CR end); return s
+end
+local function mkOutNoCorner()
+    local s=Drawing.new("Square"); s.Filled=false; s.Thickness=1
+    s.Visible=false; pcall(function() s.Corner=0 end); return s
+end
+local function mkT()
+    local t=Drawing.new("Text"); t.Font=GF
+    t.Center=false; t.Outline=false; t.Visible=false; return t
+end
+
+local bounds = {
+    title={0,0,0,0}, keybind={0,0,0,0}, addBtn={0,0,0,0}, settings={0,0,0,0}, reset={0,0,0,0},
+    cats={}, subs={}, load={}, upd={}, del={}, scroll={0,0,0,0}
 }
 
-keybindToggle.label.Text = "Hide GUI:"
-keybindToggle.label.Size = fontSize
-keybindToggle.label.Color = textColor
-keybindToggle.label.Transparency = 0.5
-keybindToggle.hint.Font = GUI_FONT
-keybindToggle.label.Center = false
-keybindToggle.label.Outline = false
-keybindToggle.label.Visible = true
+-- =====================================================
+-- ELEMENTS CREATION 
+-- =====================================================
+local titleBg = mkS(); local titleAccent = mkS(); pcall(function() titleAccent.Corner=0 end)
+local titleTxt = mkT(); local titleSub = mkT()
 
-keybindToggle.value.Text = getKeyName(TOGGLE_KEYCODE)
-keybindToggle.value.Size = fontSize
-keybindToggle.value.Color = accentColor
-keybindToggle.value.Transparency = 1.0
-keybindToggle.value.Font = GUI_FONT
-keybindToggle.value.Center = false
-keybindToggle.value.Outline = false
-keybindToggle.value.Visible = true
+local setL1 = mkS(); local setL2 = mkS(); local setL3 = mkS()
+pcall(function() setL1.Corner=0; setL2.Corner=0; setL3.Corner=0 end)
 
-keybindToggle.hint.Text = "(click to change)"
-keybindToggle.hint.Size = fontSize - 3
-keybindToggle.hint.Color = textColor
-keybindToggle.hint.Transparency = 0.3
-keybindToggle.hint.Font = GUI_FONT
-keybindToggle.hint.Center = false
-keybindToggle.hint.Outline = false
-keybindToggle.hint.Visible = true
+local resetBg = mkS(); local resetOut = mkOut(); local resetTxt = mkT()
 
-for i, cat in ipairs(categoryConfig) do
-    local drop = {
-        baseName = cat.name,
-        governedFolders = cat.folders,
-        optionsData = categoryOptions[cat.name],
-        selectedIndex = nil,
-        isOpen = false
+local leftBg = mkS()
+local toggleWidgets = {}
+local dropdowns = {}
+for _, cat in ipairs(categoryConfig) do
+    local tw={ label=mkT(), onoff=mkT(), selName=mkT(), arrow=mkT(), value=enabledCategories[cat.name] }
+    toggleWidgets[cat.name] = tw
+    local dd={ baseName=cat.name, optionsData=categoryOptions[cat.name] or {}, selectedIndex=nil }
+    table.insert(dropdowns, dd)
+    table.insert(bounds.cats, {toggle={0,0,0,0}, drop={0,0,0,0}, out=mkOutNoCorner()})
+end
+
+local kbBg=mkS(); local kbLbl=mkT(); local kbVal=mkT(); local kbHint=mkT()
+local rightBg=mkS(); local addBg=mkS(); local addOut=mkOut(); local addTxt=mkT()
+
+local profileRows={}
+for i=1,VISIBLE_PROFILES do
+    local r={
+        bg=mkS(), title=mkT(),
+        loadBg=mkS(), loadOut=mkOut(), loadT=mkT(),
+        updBg=mkS(), updOut=mkOut(), updT=mkT(),
+        delBg=mkS(), delOut=mkOut(), delT=mkT()
     }
-    
-    drop.label = Drawing.new("Text")
-    drop.label.Text = "  " .. drop.baseName
-    drop.label.Size = fontSize
-    drop.label.Color = textColor
-    drop.label.Transparency = 0.5
-    drop.label.Font = GUI_FONT
-    drop.label.Center = false
-    drop.label.Outline = false
-    drop.label.Visible = true
-    
-    drop.arrow = Drawing.new("Text")
-    drop.arrow.Text = "<"
-    drop.arrow.Size = fontSize
-    drop.arrow.Color = textColor
-    drop.arrow.Transparency = 0.3
-    drop.arrow.Font = GUI_FONT
-    drop.arrow.Center = false
-    drop.arrow.Outline = false
-    drop.arrow.Visible = true
-    
-    drop.optionDrawings = {}
-    for j = 1, #drop.optionsData do
-        local optText = Drawing.new("Text")
-        optText.Text = drop.optionsData[j].name
-        optText.Size = fontSize
-        optText.Color = textColor
-        optText.Transparency = 0.5 
-        optText.Font = GUI_FONT
-        optText.Center = false
-        optText.Outline = false
-        optText.Visible = false
-        table.insert(drop.optionDrawings, optText)
-    end
-    
-    table.insert(dropdowns, drop)
+    table.insert(profileRows, r)
+    table.insert(bounds.load, {0,0,0,0}); table.insert(bounds.upd, {0,0,0,0}); table.insert(bounds.del, {0,0,0,0})
 end
 
-local addConfigBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") }
-addConfigBtn.bg.Color = Color3.fromRGB(30, 30, 35)
-addConfigBtn.bg.Transparency = 0.8
-addConfigBtn.bg.Filled = true
-addConfigBtn.bg.Visible = true
-addConfigBtn.text.Text = "+ SAVE NEW PROFILE"
-addConfigBtn.text.Size = fontSize - 2
-addConfigBtn.text.Color = textColor
-addConfigBtn.text.Font = GUI_FONT
-addConfigBtn.text.Center = true
-addConfigBtn.text.Visible = true
+local scrollTrack=mkS(); pcall(function() scrollTrack.Corner=4 end)
+local scrollThumb=mkS(); pcall(function() scrollThumb.Corner=4 end)
+local subBg=mkS(); local subOutline=mkOut()
 
-local profileRows = {}
-for i = 1, 5 do
-    local row = {
-        bg = Drawing.new("Square"),
-        title = Drawing.new("Text"),
-        loadBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") },
-        updateBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") },
-        deleteBtn = { bg = Drawing.new("Square"), text = Drawing.new("Text") }
-    }
-    
-    row.bg.Color = Color3.fromRGB(22, 22, 26)
-    row.bg.Transparency = 0.8
-    row.bg.Filled = true
-    
-    row.title.Size = fontSize - 2
-    row.title.Color = textColor
-    row.title.Font = GUI_FONT
-    row.title.Transparency = 0.8
-    
-    row.loadBtn.bg.Color = Color3.fromRGB(45, 180, 85)
-    row.loadBtn.bg.Filled = true
-    row.loadBtn.text.Text = "Load"
-    row.loadBtn.text.Size = fontSize - 4
-    row.loadBtn.text.Color = textColor
-    row.loadBtn.text.Center = true
-    
-    row.updateBtn.bg.Color = Color3.fromRGB(220, 150, 40)
-    row.updateBtn.bg.Filled = true
-    row.updateBtn.text.Text = "Update"
-    row.updateBtn.text.Size = fontSize - 4
-    row.updateBtn.text.Color = textColor
-    row.updateBtn.text.Center = true
-    
-    row.deleteBtn.bg.Color = Color3.fromRGB(220, 60, 60)
-    row.deleteBtn.bg.Filled = true
-    row.deleteBtn.text.Text = "Del"
-    row.deleteBtn.text.Size = fontSize - 4
-    row.deleteBtn.text.Color = textColor
-    row.deleteBtn.text.Center = true
-    
-    table.insert(profileRows, row)
+local subOptLabels={}
+local subThemeIcons={}
+local subBgs={}
+local subOuts={}
+local activeMenuIndex = nil
+
+local function clearSubs()
+    for _,l in ipairs(subOptLabels) do pcall(function() l:Remove() end) end
+    for _,l in ipairs(subThemeIcons) do pcall(function() l:Remove() end) end
+    for _,l in ipairs(subBgs) do pcall(function() l:Remove() end) end
+    for _,l in ipairs(subOuts) do pcall(function() l:Remove() end) end
+    subOptLabels={}; subThemeIcons={}; subBgs={}; subOuts={}; bounds.subs={}
 end
 
-local function setRowVisibility(row, visible)
-    row.bg.Visible = visible
-    row.title.Visible = visible
-    row.loadBtn.bg.Visible = visible
-    row.loadBtn.text.Visible = visible
-    row.updateBtn.bg.Visible = visible
-    row.updateBtn.text.Visible = visible
-    row.deleteBtn.bg.Visible = visible
-    row.deleteBtn.text.Visible = visible
-end
-
-local function updateContentLayout()
-    titleBar.Visible = isUIVisible
-    title1.Visible = isUIVisible
-    title2.Visible = isUIVisible
-    content.Visible = isUIVisible
-    addConfigBtn.bg.Visible = isUIVisible
-    addConfigBtn.text.Visible = isUIVisible
-
-    local titleX = titleBar.Position.X
-    local titleY = titleBar.Position.Y
-    
-    local startContentY = titleY + titleHeight
-    
-    title1.Position = Vector2.new(titleX + leftPadding, titleY + (titleHeight/2) - ((fontSize+2)/2))
-    title2.Position = Vector2.new(titleX + leftPadding + 110, titleY + (titleHeight/2) - ((fontSize+2)/2))
-    local currentY = startContentY + 18
-    local toggleX = titleX + leftPadding
-    
-    for i, cat in ipairs(categoryConfig) do
-        local catName = cat.name
-        local toggle = toggleWidgets[catName]
-        local drop = dropdowns[i]
-        
-        toggle.label.Position = Vector2.new(toggleX, currentY)
-        toggle.label.Visible = isUIVisible
-        
-        toggle.enabled.Position = Vector2.new(toggleX + 65, currentY)
-        toggle.enabled.Visible = isUIVisible
-        
-        drop.label.Position = Vector2.new(toggleX + 110, currentY)
-        drop.label.Visible = isUIVisible
-        
-        if activeMenuIndex == i then
-            drop.arrow.Text = ">"
-            drop.arrow.Transparency = 1.0
-            drop.arrow.Color = accentColor
-        else
-            drop.arrow.Text = "<"
-            drop.arrow.Transparency = 0.3
-            drop.arrow.Color = textColor
-        end
-        
-        drop.arrow.Position = Vector2.new(titleX + width - 18 - charWidth, currentY)
-        drop.arrow.Visible = isUIVisible
-        
-        currentY = currentY + fontSize + gap 
-    end
-    
-    currentY = currentY + 10
-    
-    keybindToggle.label.Position = Vector2.new(toggleX, currentY)
-    keybindToggle.label.Visible = isUIVisible
-    keybindToggle.value.Position = Vector2.new(toggleX + 75, currentY)
-    keybindToggle.value.Visible = isUIVisible
-    keybindToggle.hint.Position = Vector2.new(toggleX + 115, currentY + 2)
-    keybindToggle.hint.Visible = isUIVisible
-    
-    currentY = currentY + fontSize + 20
-    
-    addConfigBtn.bg.Position = Vector2.new(titleX + leftPadding, currentY)
-    addConfigBtn.bg.Size = Vector2.new(width - (leftPadding*2), 36)
-    addConfigBtn.text.Position = Vector2.new(titleX + (width / 2), currentY + 18 - (fontSize / 2))
-    
-    if #globalConfigsList >= 5 then
-        addConfigBtn.text.Text = "MAX LIMIT REACHED (5/5)"
-        addConfigBtn.text.Color = Color3.fromRGB(150, 150, 150)
-    else
-        addConfigBtn.text.Text = "+ SAVE NEW PROFILE (" .. #globalConfigsList .. "/5)"
-        addConfigBtn.text.Color = textColor
-    end
-    
-    currentY = currentY + 46
-    
-    for i = 1, 5 do
-        local row = profileRows[i]
-        local configData = globalConfigsList[i]
-        
-        if configData and isUIVisible then
-            setRowVisibility(row, true)
-            
-            row.bg.Position = Vector2.new(titleX + leftPadding, currentY)
-            row.bg.Size = Vector2.new(width - (leftPadding*2), 40)
-            
-            if editingProfileIndex == i then
-                row.title.Text = configData.Name .. "_"
-                row.title.Color = accentColor
-            else
-                row.title.Text = configData.Name or ("Profile " .. i)
-                row.title.Color = textColor
-            end
-            row.title.Position = Vector2.new(titleX + leftPadding + 10, currentY + 20 - (fontSize/2))
-            
-            local btnW = 46
-            local btnH = 24
-            local btnY = currentY + 20 - (btnH / 2)
-            local rightX = titleX + width - leftPadding - 10
-            
-            row.deleteBtn.bg.Position = Vector2.new(rightX - btnW, btnY)
-            row.deleteBtn.bg.Size = Vector2.new(btnW, btnH)
-            row.deleteBtn.text.Position = Vector2.new(rightX - btnW + (btnW/2), btnY + (btnH/2) - (fontSize-4)/2)
-            
-            row.updateBtn.bg.Position = Vector2.new(rightX - (btnW * 2) - 6, btnY)
-            row.updateBtn.bg.Size = Vector2.new(btnW, btnH)
-            row.updateBtn.text.Position = Vector2.new(rightX - (btnW * 2) - 6 + (btnW/2), btnY + (btnH/2) - (fontSize-4)/2)
-            
-            row.loadBtn.bg.Position = Vector2.new(rightX - (btnW * 3) - 12, btnY)
-            row.loadBtn.bg.Size = Vector2.new(btnW, btnH)
-            row.loadBtn.text.Position = Vector2.new(rightX - (btnW * 3) - 12 + (btnW/2), btnY + (btnH/2) - (fontSize-4)/2)
-            
-            currentY = currentY + 46
-        else
-            setRowVisibility(row, false)
-        end
-    end
-    
-    local finalContentHeight = (currentY - startContentY) + 6
-    content.Position = Vector2.new(titleX, startContentY)
-    content.Size = Vector2.new(width, finalContentHeight)
-    
-    if activeMenuIndex and isUIVisible then
-        local targetDrop = dropdowns[activeMenuIndex]
-        local menuX = titleX + width + 8
-        local menuY = startContentY
-        
-        local totalItems = #targetDrop.optionsData
-        if totalItems > 0 then
-            local numColumns = math.ceil(totalItems / SUB_MENU_MAX_ROWS)
-            local numRows = math.min(totalItems, SUB_MENU_MAX_ROWS)
-            
-            local totalTextHeight = numRows * fontSize
-            local totalGapsHeight = (numRows - 1) * rowSpacing
-            local menuHeight = 16 + totalTextHeight + totalGapsHeight + 16
-            local menuTotalWidth = numColumns * SUB_MENU_COL_WIDTH
-            
-            menuContent.Position = Vector2.new(menuX, menuY)
-            menuContent.Size = Vector2.new(menuTotalWidth, menuHeight)
-            menuContent.Visible = true
-            
-            for j, drawing in ipairs(targetDrop.optionDrawings) do
-                drawing.Visible = true
-                local colIndex = math.floor((j - 1) / SUB_MENU_MAX_ROWS)
-                local rowIndex = (j - 1) % SUB_MENU_MAX_ROWS
-                
-                local drawX = menuX + 16 + (colIndex * SUB_MENU_COL_WIDTH)
-                local drawY = menuY + 16 + (rowIndex * (fontSize + rowSpacing))
-                
-                drawing.Position = Vector2.new(drawX, drawY)
-                
-                if j == targetDrop.selectedIndex then
-                    drawing.Text = "> " .. targetDrop.optionsData[j].name
-                    drawing.Transparency = 1.0
-                    drawing.Color = accentColor
-                else
-                    drawing.Text = targetDrop.optionsData[j].name
-                    drawing.Transparency = 0.6
-                    drawing.Color = textColor
-                end
-            end
-        end
-        for i, drop in ipairs(dropdowns) do
-            if i ~= activeMenuIndex then
-                for _, drawing in ipairs(drop.optionDrawings) do drawing.Visible = false end
-            end
-        end
-    else
-        menuContent.Visible = false
-        for i, drop in ipairs(dropdowns) do
-            for _, drawing in ipairs(drop.optionDrawings) do drawing.Visible = false end
-        end
-    end
-end
-
+-- =====================================================
+-- STATE FUNCTIONS
+-- =====================================================
 local function captureCurrentStateData(nameStr)
     local state = { Name = nameStr, Toggles = {}, Selections = {}, Keybind = TOGGLE_KEYCODE }
-    for _, cat in ipairs(categoryConfig) do state.Toggles[cat.name] = enabledCategories[cat.name] end
+    for _, cat in ipairs(categoryConfig) do state.Toggles[cat.name] = toggleWidgets[cat.name].value end
     for i, drop in ipairs(dropdowns) do state.Selections[drop.baseName] = drop.selectedIndex end
     return state
 end
@@ -752,339 +621,526 @@ end
 local function applyStateData(state)
     if not state then return end
     if state.Keybind then TOGGLE_KEYCODE = state.Keybind end
-    
     for _, cat in ipairs(categoryConfig) do
         if state.Toggles and state.Toggles[cat.name] ~= nil then
-            enabledCategories[cat.name] = state.Toggles[cat.name]
-            local toggle = toggleWidgets[cat.name]
-            if toggle then
-                toggle.value = enabledCategories[cat.name]
-                toggle.enabled.Text = toggle.value and "ON" or "OFF"
-                toggle.enabled.Color = toggle.value and accentColor or Color3.fromRGB(120, 120, 130)
-            end
+            toggleWidgets[cat.name].value = state.Toggles[cat.name]
+            enabledCategories[cat.name] = toggleWidgets[cat.name].value
         end
     end
-    
-    for folderName, _ in pairs(activeSpoofs) do activeSpoofs[folderName] = nil end
-    
+    for fn, _ in pairs(activeSpoofs) do activeSpoofs[fn] = nil end
     for i, drop in ipairs(dropdowns) do
         if state.Selections and state.Selections[drop.baseName] then
             drop.selectedIndex = state.Selections[drop.baseName]
-            local selectedPack = drop.optionsData[drop.selectedIndex]
-            if selectedPack and enabledCategories[drop.baseName] then
-                for fName, idsList in pairs(selectedPack.foldersData) do activeSpoofs[fName] = idsList end
+            local opt = drop.optionsData[drop.selectedIndex]
+            if opt then
+                for fn, ids in pairs(opt.foldersData) do activeSpoofs[fn] = ids end
             end
         else
             drop.selectedIndex = nil
         end
     end
-    shouldUpdate = true
+    applyActiveAnimations()
 end
 
-updateContentLayout()
+-- =====================================================
+-- RENDER FUNCTION
+-- =====================================================
+local prevActiveMenuIndex = -1
 
-local function handleToggleClick(catName)
-    local toggle = toggleWidgets[catName]
-    if not toggle then return end
-    
-    toggle.value = not toggle.value
-    enabledCategories[catName] = toggle.value
-    toggle.enabled.Text = toggle.value and "ON" or "OFF"
-    toggle.enabled.Color = toggle.value and accentColor or Color3.fromRGB(120, 120, 130)
-    
-    if not toggle.value then
-        for _, cat in ipairs(categoryConfig) do
-            if cat.name == catName then
-                for _, fName in ipairs(cat.folders) do activeSpoofs[fName] = nil end
-                break
-            end
-        end
-    else
-        for i, cat in ipairs(categoryConfig) do
-            if cat.name == catName then
-                local drop = dropdowns[i]
-                if drop and drop.selectedIndex then
-                    local selectedPack = drop.optionsData[drop.selectedIndex]
-                    if selectedPack then
-                        for _, fName in ipairs(cat.folders) do activeSpoofs[fName] = nil end
-                        for fName, idsList in pairs(selectedPack.foldersData) do activeSpoofs[fName] = idsList end
-                    end
-                end
-                break
-            end
-        end
-    end
-    shouldUpdate = true
+local function inB(b, mx, my)
+    return b and b[1] and mx>=b[1] and mx<b[1]+b[3] and my>=b[2] and my<b[2]+b[4]
 end
 
-local dragging = false
-local dragStart = nil
-local windowStartPos = nil
-local clickDebounce = false
-
-local function checkKeyboardInputForNaming()
-    if not editingProfileIndex then return end
-    local prof = globalConfigsList[editingProfileIndex]
-    if not prof then return end
-    
-    if iskeypressed(8) then 
-        if not _G.backspaceDebounce then
-            _G.backspaceDebounce = true
-            if #prof.Name > 0 then
-                prof.Name = string.sub(prof.Name, 1, #prof.Name - 1)
-                updateContentLayout()
-            end
+local function layout(mx, my)
+    if globalAlpha <= 0 then
+        titleBg.Visible=false; titleAccent.Visible=false; titleTxt.Visible=false; titleSub.Visible=false
+        setL1.Visible=false; setL2.Visible=false; setL3.Visible=false
+        resetBg.Visible=false; resetOut.Visible=false; resetTxt.Visible=false
+        leftBg.Visible=false; rightBg.Visible=false
+        for i,cat in ipairs(categoryConfig) do 
+            local tw=toggleWidgets[cat.name]
+            tw.label.Visible=false; tw.onoff.Visible=false; tw.selName.Visible=false; tw.arrow.Visible=false
+            bounds.cats[i].out.Visible=false 
         end
-    else
-        _G.backspaceDebounce = false
-    end
-    
-    if iskeypressed(13) then
-        if #prof.Name == 0 then prof.Name = "Config " .. editingProfileIndex end
-        editingProfileIndex = nil
-        saveAllConfigsToFile()
-        updateContentLayout()
-        task.wait(0.2)
+        kbBg.Visible=false; kbLbl.Visible=false; kbVal.Visible=false; kbHint.Visible=false
+        addBg.Visible=false; addOut.Visible=false; addTxt.Visible=false
+        for i=1,VISIBLE_PROFILES do
+            local r=profileRows[i]; r.bg.Visible=false; r.title.Visible=false
+            r.loadBg.Visible=false; r.loadOut.Visible=false; r.loadT.Visible=false
+            r.updBg.Visible=false; r.updOut.Visible=false; r.updT.Visible=false
+            r.delBg.Visible=false; r.delOut.Visible=false; r.delT.Visible=false
+        end
+        scrollTrack.Visible=false; scrollThumb.Visible=false; subBg.Visible=false; subOutline.Visible=false
+        clearSubs(); prevActiveMenuIndex = -1
         return
     end
+
+    local tx, ty = startX, startY
+
+    titleBg.Position=Vector2.new(tx,ty); titleBg.Size=Vector2.new(W,TH)
+    titleBg.Color=C.C_TITLE; titleBg.Transparency=0.98*globalAlpha; titleBg.Visible=true
     
-    if not _G.keyInputDebounce then
-        for vk = 0x30, 0x5A do
-            if iskeypressed(vk) then
-                _G.keyInputDebounce = true
-                local char = string.char(vk)
-                if not (iskeypressed(0x10)) then char = string.lower(char) end
-                prof.Name = prof.Name .. char
-                updateContentLayout()
-                break
-            end
+    titleAccent.Position=Vector2.new(tx,ty); titleAccent.Size=Vector2.new(4,TH)
+    titleAccent.Color=C.C_ACCENT; titleAccent.Transparency=1.0*globalAlpha; titleAccent.Visible=true
+    
+    bounds.settings = {tx+LP-4, ty+4, 28, TH-8}
+    local setCol = inB(bounds.settings, mx, my) and hoverCol(C.C_TEXT) or C.C_TEXT
+    setL1.Position=Vector2.new(tx+LP, ty+TH/2 - 6); setL1.Size=Vector2.new(16, 2)
+    setL1.Color=setCol; setL1.Transparency=1.0*globalAlpha; setL1.Visible=true
+    setL2.Position=Vector2.new(tx+LP, ty+TH/2); setL2.Size=Vector2.new(16, 2)
+    setL2.Color=setCol; setL2.Transparency=1.0*globalAlpha; setL2.Visible=true
+    setL3.Position=Vector2.new(tx+LP, ty+TH/2 + 6); setL3.Size=Vector2.new(16, 2)
+    setL3.Color=setCol; setL3.Transparency=1.0*globalAlpha; setL3.Visible=true
+
+    titleTxt.Text="ANIMATION CHANGER"; titleTxt.Size=FS+4; titleTxt.Position=Vector2.new(tx+LP+28, ty+TH/2-(FS+4)/2+1)
+    titleTxt.Color=C.C_ACCENT; titleTxt.Transparency=1.0*globalAlpha; titleTxt.Visible=true
+    
+    titleSub.Text="R15 - MATCHA"; titleSub.Size=FS-1; titleSub.Position=Vector2.new(tx+LP+260, ty+TH/2-(FS-1)/2+1)
+    titleSub.Color=C.C_MUTED; titleSub.Transparency=0.8*globalAlpha; titleSub.Visible=true
+
+    local rxBtn = tx + W - LP - 60
+    local ryBtn = ty + TH/2 - 14
+    bounds.reset = {rxBtn, ryBtn, 60, 28}
+    resetBg.Position = Vector2.new(rxBtn, ryBtn); resetBg.Size = Vector2.new(60, 28)
+    resetBg.Color = inB(bounds.reset, mx, my) and hoverCol(C.C_RED) or C.C_RED
+    resetBg.Transparency = 1.0 * globalAlpha; resetBg.Visible = true
+    resetOut.Position = resetBg.Position; resetOut.Size = resetBg.Size
+    resetOut.Color = C.C_TITLE; resetOut.Transparency = 0.6 * globalAlpha; resetOut.Visible = true
+    resetTxt.Text = "Reset"; resetTxt.Size = FS - 1
+    resetTxt.Position = Vector2.new(rxBtn + 30, ryBtn + 14 - (FS-1)/2 + 1); resetTxt.Center = true
+    resetTxt.Color = C.C_TITLE; resetTxt.Transparency = 1.0 * globalAlpha; resetTxt.Visible = true
+    
+    bounds.title = {tx, ty, W, TH}
+
+    local bodyY = ty + TH + 10
+    leftBg.Position=Vector2.new(tx,bodyY); leftBg.Color=C.C_BG; leftBg.Transparency=0.98*globalAlpha; leftBg.Visible=true
+    rightBg.Position=Vector2.new(tx+LW+GAP,bodyY); rightBg.Color=C.C_BG; rightBg.Transparency=0.98*globalAlpha; rightBg.Visible=true
+
+    -- LEFT
+    local cy = bodyY + 12
+    for i, cat in ipairs(categoryConfig) do
+        local tw = toggleWidgets[cat.name]
+        local rx = tx + LP
+        local bTog = bounds.cats[i].toggle
+        local bDrop = bounds.cats[i].drop
+
+        tw.label.Text=cat.name; tw.label.Size=FS; tw.label.Position=Vector2.new(rx+4, cy+RH/2-FS/2)
+        tw.label.Color=inB(bTog, mx, my) and C.C_ACCENT or C.C_TEXT; tw.label.Transparency=0.9*globalAlpha; tw.label.Visible=true
+
+        tw.onoff.Text=tw.value and "ON" or "OFF"; tw.onoff.Size=FS; tw.onoff.Position=Vector2.new(rx+94, cy+RH/2-FS/2)
+        tw.onoff.Color=tw.value and C.C_ACCENT or C.C_MUTED; tw.onoff.Transparency=1.0*globalAlpha; tw.onoff.Visible=true
+        
+        tw.selName.Size=FS-1; tw.selName.Position=Vector2.new(rx+144, cy+RH/2-(FS-1)/2)
+        tw.selName.Color=inB(bDrop, mx, my) and hoverCol(C.C_MUTED) or C.C_MUTED; tw.selName.Transparency=0.75*globalAlpha; tw.selName.Visible=true
+
+        tw.arrow.Text=">"; tw.arrow.Size=FS; tw.arrow.Position=Vector2.new(tx+LW-LP-16, cy+RH/2-FS/2)
+        tw.arrow.Color=(activeMenuIndex==i) and C.C_ACCENT or C.C_MUTED; tw.arrow.Transparency=((activeMenuIndex==i) and 1.0 or 0.6)*globalAlpha; tw.arrow.Visible=true
+
+        local rectX, rectY, rectW, rectH = rx-4, cy-4, LW-LP*2+8, RH+8
+        
+        bounds.cats[i].toggle = {rectX, rectY, 135, rectH}
+        bounds.cats[i].drop   = {rectX+135, rectY, rectW-135, rectH}
+
+        local outS = bounds.cats[i].out
+        outS.Position = Vector2.new(rectX, rectY); outS.Size = Vector2.new(rectW, rectH)
+        outS.Color = C.C_MUTED; outS.Transparency = 0.25*globalAlpha; outS.Visible = true
+
+        cy = cy + RH + 10
+    end
+
+    cy = cy + 6
+    kbBg.Position=Vector2.new(tx+LP,cy); kbBg.Size=Vector2.new(LW-LP*2,RH); kbBg.Color=C.C_ROW; kbBg.Transparency=0.9*globalAlpha; kbBg.Visible=true
+    bounds.keybind = {tx+LP, cy, LW-LP*2, RH}
+
+    kbLbl.Text="Toggle key:"; kbLbl.Size=FS-1; kbLbl.Position=Vector2.new(tx+LP+10, cy+RH/2-(FS-1)/2)
+    kbLbl.Color=C.C_MUTED; kbLbl.Transparency=0.8*globalAlpha; kbLbl.Visible=true
+    
+    kbVal.Text=getKeyName(TOGGLE_KEYCODE); kbVal.Size=FS; kbVal.Position=Vector2.new(tx+LP+110, cy+RH/2-FS/2)
+    kbVal.Color=inB(bounds.keybind, mx, my) and hoverCol(C.C_ACCENT) or C.C_ACCENT; kbVal.Transparency=1.0*globalAlpha; kbVal.Visible=true
+    
+    kbHint.Text="(click)"; kbHint.Size=FS-2; kbHint.Position=Vector2.new(tx+LP+150, cy+RH/2-(FS-2)/2)
+    kbHint.Color=C.C_MUTED; kbHint.Transparency=0.5*globalAlpha; kbHint.Visible=true
+    cy = cy + RH + 16
+    leftBg.Size = Vector2.new(LW, cy - bodyY)
+
+    -- RIGHT
+    local rox = tx + LW + GAP
+    local ry  = bodyY + 12
+
+    bounds.addBtn = {rox+LP, ry, RW-LP*2, RH+6}
+    addBg.Position=Vector2.new(rox+LP,ry); addBg.Size=Vector2.new(RW-LP*2,RH+6)
+    addBg.Color=inB(bounds.addBtn,mx,my) and hoverCol(C.C_ROW) or C.C_ROW; addBg.Transparency=0.92*globalAlpha; addBg.Visible=true
+    addOut.Position=addBg.Position; addOut.Size=addBg.Size; addOut.Color=C.C_MUTED; addOut.Transparency=0.3*globalAlpha; addOut.Visible=true
+    
+    addTxt.Size=FS; addTxt.Position=Vector2.new(rox+RW/2, ry+(RH+6)/2-FS/2); addTxt.Center=true
+    if #globalConfigsList >= MAX_CONFIGS then
+        addTxt.Text="MAX PROFILES ("..MAX_CONFIGS..")"; addTxt.Color=C.C_MUTED; addTxt.Transparency=0.8*globalAlpha
+    else
+        addTxt.Text="+  NEW PROFILE ("..#globalConfigsList.."/"..MAX_CONFIGS..")"; addTxt.Color=C.C_ACCENT; addTxt.Transparency=1.0*globalAlpha
+    end
+    addTxt.Visible=true
+    ry = ry + RH + 24
+
+    local totalProfs = #globalConfigsList
+    if totalProfs <= VISIBLE_PROFILES then scrollOffset = 0 end
+    if scrollOffset > math.max(0, totalProfs - VISIBLE_PROFILES) then scrollOffset = math.max(0, totalProfs - VISIBLE_PROFILES) end
+
+    local sbY = ry
+    local sbH = VISIBLE_PROFILES * (PRH + 8) - 8
+    local sbX = rox + RW - LP - 10
+    local sbW = 10
+    
+    for i=1,VISIBLE_PROFILES do
+        local r = profileRows[i]
+        local realIndex = i + scrollOffset
+        local conf = globalConfigsList[realIndex]
+        if conf then
+            r.bg.Position=Vector2.new(rox+LP,ry); r.bg.Size=Vector2.new(RW-LP*2-20,PRH)
+            r.bg.Color=C.C_ROW; r.bg.Transparency=0.9*globalAlpha; r.bg.Visible=true
+            
+            r.title.Text=conf.Name or ("Profile "..realIndex); r.title.Size=FS; r.title.Position=Vector2.new(rox+LP+12, ry+PRH/2-FS/2)
+            r.title.Color=C.C_TEXT; r.title.Transparency=0.9*globalAlpha; r.title.Visible=true
+
+            local bw, bh = 50, 28
+            local by = ry + PRH/2 - bh/2
+            local ex = rox + RW - LP - 28 
+            local gap = 8 
+            
+            -- DELETE
+            bounds.del[i] = {ex-bw, by, bw, bh, realIndex}
+            r.delBg.Position=Vector2.new(ex-bw,by); r.delBg.Size=Vector2.new(bw,bh)
+            r.delBg.Color=inB(bounds.del[i],mx,my) and hoverCol(C.C_RED) or C.C_RED; r.delBg.Transparency=1.0*globalAlpha; r.delBg.Visible=true
+            r.delOut.Position=r.delBg.Position; r.delOut.Size=r.delBg.Size; r.delOut.Color=C.C_TITLE; r.delOut.Transparency=0.6*globalAlpha; r.delOut.Visible=true
+            r.delT.Text="Del"; r.delT.Size=FS-1; r.delT.Position=Vector2.new(ex-bw+bw/2, by+bh/2-(FS-1)/2+1); r.delT.Center=true
+            r.delT.Color=C.C_TITLE; r.delT.Transparency=1.0*globalAlpha; r.delT.Visible=true
+            
+            -- UPDATE
+            bounds.upd[i] = {ex-bw*2-gap, by, bw, bh, realIndex}
+            r.updBg.Position=Vector2.new(ex-bw*2-gap,by); r.updBg.Size=Vector2.new(bw,bh)
+            r.updBg.Color=inB(bounds.upd[i],mx,my) and hoverCol(C.C_ORANGE) or C.C_ORANGE; r.updBg.Transparency=1.0*globalAlpha; r.updBg.Visible=true
+            r.updOut.Position=r.updBg.Position; r.updOut.Size=r.updBg.Size; r.updOut.Color=C.C_TITLE; r.updOut.Transparency=0.6*globalAlpha; r.updOut.Visible=true
+            r.updT.Text="Upd"; r.updT.Size=FS-1; r.updT.Position=Vector2.new(ex-bw*2-gap+bw/2, by+bh/2-(FS-1)/2+1); r.updT.Center=true
+            r.updT.Color=C.C_TITLE; r.updT.Transparency=1.0*globalAlpha; r.updT.Visible=true
+            
+            -- LOAD
+            bounds.load[i] = {ex-bw*3-gap*2, by, bw, bh, realIndex}
+            r.loadBg.Position=Vector2.new(ex-bw*3-gap*2,by); r.loadBg.Size=Vector2.new(bw,bh)
+            r.loadBg.Color=inB(bounds.load[i],mx,my) and hoverCol(C.C_GREEN) or C.C_GREEN; r.loadBg.Transparency=1.0*globalAlpha; r.loadBg.Visible=true
+            r.loadOut.Position=r.loadBg.Position; r.loadOut.Size=r.loadBg.Size; r.loadOut.Color=C.C_TITLE; r.loadOut.Transparency=0.6*globalAlpha; r.loadOut.Visible=true
+            r.loadT.Text="Load"; r.loadT.Size=FS-1; r.loadT.Position=Vector2.new(ex-bw*3-gap*2+bw/2, by+bh/2-(FS-1)/2+1); r.loadT.Center=true
+            r.loadT.Color=C.C_TITLE; r.loadT.Transparency=1.0*globalAlpha; r.loadT.Visible=true
+
+            ry = ry + PRH + 8
+        else
+            r.bg.Visible=false; r.title.Visible=false
+            r.loadBg.Visible=false; r.loadOut.Visible=false; r.loadT.Visible=false
+            r.updBg.Visible=false;  r.updOut.Visible=false; r.updT.Visible=false
+            r.delBg.Visible=false;  r.delOut.Visible=false; r.delT.Visible=false
+            bounds.load[i]={0,0,0,0}; bounds.upd[i]={0,0,0,0}; bounds.del[i]={0,0,0,0}
         end
-        if iskeypressed(32) then
-            _G.keyInputDebounce = true
-            prof.Name = prof.Name .. " "
-            updateContentLayout()
+    end
+
+    scrollTrack.Position=Vector2.new(sbX,sbY); scrollTrack.Size=Vector2.new(sbW,sbH)
+    scrollTrack.Color=C.C_ROW; scrollTrack.Transparency=0.6*globalAlpha; scrollTrack.Visible=true
+    
+    if totalProfs > VISIBLE_PROFILES then
+        local pct = VISIBLE_PROFILES / totalProfs
+        local thumbH = math.max(30, sbH * pct)
+        local maxOffset = totalProfs - VISIBLE_PROFILES
+        if not draggingScroll then visualScrollPct = scrollOffset / maxOffset end
+        local thumbY = sbY + visualScrollPct * (sbH - thumbH)
+        scrollThumb.Position=Vector2.new(sbX,thumbY); scrollThumb.Size=Vector2.new(sbW,thumbH)
+    else
+        scrollThumb.Position=Vector2.new(sbX,sbY); scrollThumb.Size=Vector2.new(sbW,sbH)
+    end
+    scrollThumb.Color=C.C_MUTED; scrollThumb.Transparency=1.0*globalAlpha; scrollThumb.Visible=true
+    bounds.scroll = {sbX-8, sbY-8, sbW+16, sbH+16}
+
+    local rightH = math.max(ry, sbY + sbH + 12) - bodyY
+    local maxH = math.max(leftBg.Size.Y, rightH)
+    leftBg.Size  = Vector2.new(LW, maxH)
+    rightBg.Size = Vector2.new(RW, maxH)
+
+    -- SUBMENU OR SETTINGS
+    if activeMenuIndex then
+        local isSettings = (activeMenuIndex == "settings")
+        local opts = {}
+        if isSettings then
+            for _, th in ipairs(ThemeOrder) do table.insert(opts, {name = th .. " Theme", isTheme = th}) end
+        else
+            opts = dropdowns[activeMenuIndex].optionsData
+        end
+
+        local total = #opts
+        if total > 0 then
+            local cols = math.ceil(total/SUB_ROWS)
+            local rows = math.min(total, SUB_ROWS)
+            
+            local itemH = FS + 12
+            local itemGap = 6
+            local rowHeight = itemH + itemGap
+            
+            local mh = 16 + rows * rowHeight - itemGap + 16 
+            local mw = isSettings and 240 or (cols * SUB_COL_W + 16)
+            local smx = tx + W + 12
+            local smy = ty + TH
+
+            subBg.Position=Vector2.new(smx,smy); subBg.Size=Vector2.new(mw,mh)
+            subBg.Color=C.C_BG; subBg.Transparency=0.98*globalAlpha; subBg.Visible=true
+            subOutline.Position=subBg.Position; subOutline.Size=subBg.Size; subOutline.Color=C.C_ACCENT; subOutline.Transparency=0.5*globalAlpha; subOutline.Visible=true
+
+            if prevActiveMenuIndex ~= activeMenuIndex then
+                clearSubs()
+                for idx,opt in ipairs(opts) do
+                    local bg = mkS()
+                    pcall(function() bg.Corner = 4 end)
+                    table.insert(subBgs, bg)
+                    
+                    local out = mkOut()
+                    pcall(function() out.Corner = 4 end)
+                    table.insert(subOuts, out)
+
+                    if isSettings then
+                        local ti=mkS()
+                        ti.Size=Vector2.new(12,12)
+                        ti.Color=Themes[opt.isTheme].C_ACCENT; ti.Transparency=1.0*globalAlpha; ti.Visible=true
+                        pcall(function() ti.Corner=2 end)
+                        table.insert(subThemeIcons, ti)
+                    end
+                    
+                    local lbl=mkT(); lbl.Text=opt.name; lbl.Size=FS
+                    table.insert(subOptLabels,lbl)
+                    table.insert(bounds.subs,{0,0,0,0,opt,idx})
+                end
+                prevActiveMenuIndex = activeMenuIndex
+            end
+
+            for i, lbl in ipairs(subOptLabels) do
+                local sb = bounds.subs[i]
+                if sb then
+                    local opt = sb[5]
+                    local optIdx = sb[6]
+                    
+                    local col=math.floor((optIdx-1)/SUB_ROWS)
+                    local row=(optIdx-1)%SUB_ROWS
+                    
+                    local lx=smx+16+col*(isSettings and 240 or SUB_COL_W)
+                    local ly=smy+16+row*rowHeight
+                    local itemW = isSettings and 200 or (SUB_COL_W - 16)
+                    
+                    sb[1] = lx
+                    sb[2] = ly
+                    sb[3] = itemW
+                    sb[4] = itemH
+
+                    local hovered = inB(sb,mx,my)
+                    
+                    local bg = subBgs[i]
+                    local out = subOuts[i]
+                    
+                    bg.Position = Vector2.new(sb[1], sb[2])
+                    bg.Size = Vector2.new(sb[3], sb[4])
+                    bg.Color = hovered and C.C_ROW or C.C_TITLE
+                    bg.Transparency = 0.6 * globalAlpha
+                    bg.Visible = true
+                    
+                    out.Position = bg.Position
+                    out.Size = bg.Size
+                    out.Color = hovered and C.C_ACCENT or C.C_MUTED
+                    out.Transparency = hovered and (0.8 * globalAlpha) or (0.2 * globalAlpha)
+                    out.Visible = true
+                    
+                    if isSettings then
+                        local ti = subThemeIcons[i]
+                        ti.Position=Vector2.new(sb[1]+8, sb[2]+sb[4]/2-6)
+                        ti.Transparency=1.0*globalAlpha
+                    end
+                    
+                    lbl.Position=Vector2.new(isSettings and (sb[1]+28) or (sb[1]+10), sb[2]+sb[4]/2 - FS/2)
+                    if isSettings then
+                        lbl.Color = hovered and Themes[opt.isTheme].C_ACCENT or Themes[opt.isTheme].C_TEXT
+                    else
+                        lbl.Color = hovered and C.C_ACCENT or C.C_TEXT
+                    end
+                    lbl.Transparency=0.9*globalAlpha; lbl.Visible=true
+                end
+            end
+        else
+            subBg.Visible=false; subOutline.Visible=false; clearSubs(); prevActiveMenuIndex = -1
         end
     else
-        local absoluteReleased = true
-        for vk = 0x30, 0x5A do if iskeypressed(vk) then absoluteReleased = false end end
-        if iskeypressed(32) then absoluteReleased = false end
-        if absoluteReleased then _G.keyInputDebounce = false end
+        subBg.Visible=false; subOutline.Visible=false; clearSubs(); prevActiveMenuIndex = -1
+    end
+end
+
+-- =====================================================
+-- INPUT HANDLING
+-- =====================================================
+local dragging=false; local dragStart=nil; local windowStartPos=nil
+local draggingScroll=false; local clickDebounce=false
+
+local function handleScrollInput(my)
+    local sb = bounds.scroll
+    if sb and sb[4] > 0 then
+        local totalProfs = #globalConfigsList
+        local maxOffset = totalProfs - VISIBLE_PROFILES
+        if maxOffset > 0 then
+            local relY = my - sb[2]
+            local pct = math.clamp(relY / sb[4], 0, 1)
+            visualScrollPct = pct
+            scrollOffset = math.floor(pct * maxOffset + 0.5)
+        end
     end
 end
 
 task.spawn(function()
-    local mouse = game:GetService("Players").LocalPlayer:GetMouse()
-    
     while true do
         local mx, my = mouse.X, mouse.Y
-        
-        if editingProfileIndex then
-            checkKeyboardInputForNaming()
-            task.wait()
-            continue
-        end
-        
+        local mb = ismouse1pressed()
 
-        
-        if iskeypressed(0x1B) and isWaitingForKey then
-            isWaitingForKey = false
-            keybindToggle.isWaiting = false
-            keybindToggle.value.Text = getKeyName(TOGGLE_KEYCODE)
-            keybindToggle.value.Color = accentColor
-            updateContentLayout()
-        end
+        if globalAlpha > 0 then
+            if mb and not dragging and not draggingScroll and not isWaitingForKey then
+                if inB(bounds.title,mx,my) and not inB(bounds.settings,mx,my) and not inB(bounds.reset,mx,my) then
+                    dragging=true
+                    dragStart=Vector2.new(mx,my)
+                    windowStartPos=Vector2.new(startX,startY)
+                elseif inB(bounds.scroll, mx, my) then
+                    draggingScroll=true
+                    handleScrollInput(my)
+                end
+            end
 
-        if not isUIVisible then
-            task.wait()
-            continue
-        end
-
-        local insideTitle =
-            mx >= titleBar.Position.X and mx <= titleBar.Position.X + titleBar.Size.X and
-            my >= titleBar.Position.Y and my <= titleBar.Position.Y + titleBar.Size.Y
-
-        if insideTitle and ismouse1pressed() and not dragging and not isWaitingForKey then
-            dragging = true
-            dragStart = Vector2.new(mx, my)
-            windowStartPos = titleBar.Position
-        end
-
-        if ismouse1pressed() then
-            if not clickDebounce then
-                clickDebounce = true
-                
-                if not dragging and not isWaitingForKey then
-                    local titleX = titleBar.Position.X
-                    local titleY = titleBar.Position.Y
-                    local startContentY = titleY + titleHeight
-    
-    title1.Position = Vector2.new(titleX + leftPadding, titleY + (titleHeight/2) - ((fontSize+2)/2))
-    title2.Position = Vector2.new(titleX + leftPadding + 110, titleY + (titleHeight/2) - ((fontSize+2)/2))
-                    local checkY = startContentY + 18
-                    local clickedInsideDropdown = false
-                    
-                    for i, cat in ipairs(categoryConfig) do
-                        local rowTop = checkY - (gap/2)
-                        local rowBottom = checkY + fontSize + (gap/2)
-                        
-                        if mx >= titleX and mx < titleX + width and my >= rowTop and my < rowBottom then
-                            local toggleX = titleX + leftPadding
-                            if mx >= toggleX and mx < toggleX + 75 then
-                                handleToggleClick(cat.name)
-                            else
-                                clickedInsideDropdown = true
-                                activeMenuIndex = (activeMenuIndex == i) and nil or i
-                            end
-                            updateContentLayout()
-                            break
-                        end
-                        checkY = checkY + fontSize + gap
-                    end
-                    
-                    if not clickedInsideDropdown then
-                        local keyY = checkY + 10
-                        if mx >= titleX + leftPadding and mx < titleX + leftPadding + 90 and my >= keyY - 4 and my < keyY + fontSize + 4 then
-                            isWaitingForKey = true
-                            keybindToggle.isWaiting = true
-                            keybindToggle.value.Text = "..."
-                            keybindToggle.value.Color = Color3.fromRGB(255, 100, 100)
-                            updateContentLayout()
-                        end
-                    end
-                    
-                    if mx >= addConfigBtn.bg.Position.X and mx < addConfigBtn.bg.Position.X + addConfigBtn.bg.Size.X and
-                       my >= addConfigBtn.bg.Position.Y and my < addConfigBtn.bg.Position.Y + addConfigBtn.bg.Size.Y then
-                        if #globalConfigsList < 5 then
-                            table.insert(globalConfigsList, captureCurrentStateData("Profile " .. (#globalConfigsList + 1)))
-                            saveAllConfigsToFile()
-                            updateContentLayout()
-                        end
-                    end
-                    
-                    for i = 1, 5 do
-                        local row = profileRows[i]
-                        if globalConfigsList[i] and row.bg.Visible then
-                            if mx >= row.bg.Position.X and mx < row.loadBtn.bg.Position.X - 4 and
-                               my >= row.bg.Position.Y and my < row.bg.Position.Y + row.bg.Size.Y then
-                                editingProfileIndex = i
-                                globalConfigsList[i].Name = ""
-                                updateContentLayout()
-                                break
-                            end
-                            
-                            if mx >= row.loadBtn.bg.Position.X and mx < row.loadBtn.bg.Position.X + row.loadBtn.bg.Size.X and
-                               my >= row.loadBtn.bg.Position.Y and my < row.loadBtn.bg.Position.Y + row.loadBtn.bg.Size.Y then
-                                applyStateData(globalConfigsList[i])
-                                updateContentLayout()
-                                break
-                            end
-                            if mx >= row.updateBtn.bg.Position.X and mx < row.updateBtn.bg.Position.X + row.updateBtn.bg.Size.X and
-                               my >= row.updateBtn.bg.Position.Y and my < row.updateBtn.bg.Position.Y + row.updateBtn.bg.Size.Y then
-                                globalConfigsList[i] = captureCurrentStateData(globalConfigsList[i].Name)
-                                saveAllConfigsToFile()
-                                break
-                            end
-                            if mx >= row.deleteBtn.bg.Position.X and mx < row.deleteBtn.bg.Position.X + row.deleteBtn.bg.Size.X and
-                               my >= row.deleteBtn.bg.Position.Y and my < row.deleteBtn.bg.Position.Y + row.deleteBtn.bg.Size.Y then
-                                table.remove(globalConfigsList, i)
-                                saveAllConfigsToFile()
-                                updateContentLayout()
-                                break
-                            end
-                        end
-                    end
+            if not mb and clickDebounce and not dragging and not draggingScroll then
+                if inB(bounds.settings, mx, my) then
+                    if activeMenuIndex == "settings" then activeMenuIndex = nil else activeMenuIndex = "settings" end
                 end
                 
-                if activeMenuIndex then
-                    local targetDrop = dropdowns[activeMenuIndex]
-                    local menuX = titleBar.Position.X + width + 8
-                    local menuY = titleBar.Position.Y + titleHeight
-                    
-                    local totalItems = #targetDrop.optionsData
-                    if totalItems > 0 then
-                        local numColumns = math.ceil(totalItems / SUB_MENU_MAX_ROWS)
-                        local numRows = math.min(totalItems, SUB_MENU_MAX_ROWS)
-                        local totalTextHeight = numRows * fontSize
-                        local totalGapsHeight = (numRows - 1) * rowSpacing
-                        local menuHeight = 16 + totalTextHeight + totalGapsHeight + 16
-                        local menuTotalWidth = numColumns * SUB_MENU_COL_WIDTH
-                        
-                        if mx >= menuX and mx <= menuX + menuTotalWidth and my >= menuY and my <= menuY + menuHeight then
-                            for j, drawing in ipairs(targetDrop.optionDrawings) do
-                                local colIndex = math.floor((j - 1) / SUB_MENU_MAX_ROWS)
-                                local rowIndex = (j - 1) % SUB_MENU_MAX_ROWS
-                                local drawX = menuX + 16 + (colIndex * SUB_MENU_COL_WIDTH)
-                                local drawY = menuY + 16 + (rowIndex * (fontSize + rowSpacing))
-                                
-                                if mx >= drawX and mx <= drawX + SUB_MENU_COL_WIDTH - 10 and my >= drawY and my <= drawY + fontSize then
-                                    if targetDrop.selectedIndex == j then
-                                        targetDrop.selectedIndex = nil
-                                        for _, fName in ipairs(targetDrop.governedFolders) do activeSpoofs[fName] = nil end
-                                    else
-                                        targetDrop.selectedIndex = j
-                                        local selectedPack = targetDrop.optionsData[j]
-                                        if enabledCategories[targetDrop.baseName] and selectedPack then
-                                            for fName, idsList in pairs(selectedPack.foldersData) do activeSpoofs[fName] = idsList end
-                                        end
-                                    end
-                                    shouldUpdate = true
-                                    updateContentLayout()
-                                    break
-                                end
-                            end
+                if inB(bounds.reset, mx, my) then
+                    for i, cat in ipairs(categoryConfig) do
+                        local tw = toggleWidgets[cat.name]
+                        tw.selName.Text = ""
+                        dropdowns[i].selectedIndex = nil
+                    end
+                    for fn, _ in pairs(activeSpoofs) do activeSpoofs[fn] = nil end
+                    applyActiveAnimations()
+                    showNotification("Animations Reset!")
+                end
+
+                if inB(bounds.keybind,mx,my) and not isWaitingForKey then
+                    isWaitingForKey=true; kbVal.Text="..."; kbVal.Color=C.C_RED
+                end
+
+                for i, cat in ipairs(categoryConfig) do
+                    local bc = bounds.cats[i]
+                    if inB(bc.toggle,mx,my) then
+                        local tw = toggleWidgets[cat.name]
+                        tw.value = not tw.value
+                        enabledCategories[cat.name] = tw.value
+                        applyActiveAnimations()
+                    elseif inB(bc.drop,mx,my) then
+                        if activeMenuIndex==i then activeMenuIndex=nil else activeMenuIndex=i end
+                    end
+                end
+
+                for _,sb in ipairs(bounds.subs) do
+                    if inB(sb,mx,my) then
+                        local opt=sb[5]
+                        if opt.isTheme then
+                            C = Themes[opt.isTheme] or Themes.Navy
+                            currentThemeName = opt.isTheme
+                            saveTheme()
+                            showNotification("Theme Set: " .. opt.isTheme)
+                        else
+                            local dd=dropdowns[activeMenuIndex]
+                            dd.selectedIndex=sb[6]
+                            local tw = toggleWidgets[dd.baseName]
+                            tw.selName.Text = opt.name
+                            for fn,ids in pairs(opt.foldersData) do activeSpoofs[fn]=ids end
+                            applyActiveAnimations()
+                            showNotification("Applied: "..opt.name)
                         end
+                        break
+                    end
+                end
+
+                if inB(bounds.addBtn,mx,my) then
+                    if #globalConfigsList < MAX_CONFIGS then
+                        local n="Profile "..( #globalConfigsList+1 )
+                        table.insert(globalConfigsList, captureCurrentStateData(n))
+                        saveAllConfigsToFile()
+                        showNotification("Saved: '"..n.."'")
+                        scrollOffset = math.max(0, #globalConfigsList - VISIBLE_PROFILES)
+                    end
+                end
+
+                for i=1,VISIBLE_PROFILES do
+                    if inB(bounds.load[i],mx,my) then
+                        local rIdx = bounds.load[i][5]
+                        applyStateData(globalConfigsList[rIdx])
+                        showNotification("Loaded: '"..globalConfigsList[rIdx].Name.."'")
+                        break
+                    elseif inB(bounds.upd[i],mx,my) then
+                        local rIdx = bounds.upd[i][5]
+                        globalConfigsList[rIdx]=captureCurrentStateData(globalConfigsList[rIdx].Name)
+                        saveAllConfigsToFile()
+                        showNotification("Updated: '"..globalConfigsList[rIdx].Name.."'")
+                        break
+                    elseif inB(bounds.del[i],mx,my) then
+                        local rIdx = bounds.del[i][5]
+                        table.remove(globalConfigsList,rIdx); saveAllConfigsToFile()
+                        break
+                    end
+                end
+                clickDebounce=false
+            elseif mb and not clickDebounce and not dragging and not draggingScroll then
+                clickDebounce=true
+            end
+        end
+
+        if not mb then dragging=false; draggingScroll=false end
+        
+        if dragging then
+            local d=Vector2.new(mx,my)-dragStart
+            local np=windowStartPos+d
+            startX=np.X; startY=np.Y
+        elseif draggingScroll then
+            handleScrollInput(my)
+        end
+
+        if isUIVisible and globalAlpha < 1 then
+            globalAlpha = math.min(1, globalAlpha + 0.12)
+        elseif not isUIVisible and globalAlpha > 0 then
+            globalAlpha = math.max(0, globalAlpha - 0.12)
+        end
+
+        layout(mx, my)
+        task.wait()
+    end
+end)
+
+task.spawn(function()
+    local last=false
+    while true do
+        if isWaitingForKey then
+            for vk=1,254 do
+                if iskeypressed(vk) then
+                    if vk~=1 and vk~=2 and vk~=4 and vk~=5 and vk~=6 and vk~=8 then
+                        TOGGLE_KEYCODE=vk
+                        kbVal.Text=getKeyName(TOGGLE_KEYCODE); kbVal.Color=C.C_ACCENT
+                        isWaitingForKey=false; break
                     end
                 end
             end
         else
-            clickDebounce = false
-        end
-
-        if not ismouse1pressed() and dragging then dragging = false end
-
-        if dragging then
-            local delta = Vector2.new(mx, my) - dragStart
-            titleBar.Position = windowStartPos + delta
-            updateContentLayout()
-        end
-        task.wait(0.01)
-    end
-end)
-
-task.spawn(function()
-    local lastToggleState = false
-    while true do
-        if true then
-            local isDown = false
-            if isWaitingForKey then
-                for vk = 1, 254 do
-                    if iskeypressed(vk) then
-                        isDown = true
-                        if not isMouseButton(vk) and vk ~= 8 then
-                            TOGGLE_KEYCODE = vk
-                            keybindToggle.value.Text = getKeyName(TOGGLE_KEYCODE)
-                            keybindToggle.value.Color = accentColor
-                            isWaitingForKey = false
-                            updateContentLayout()
-                            break
-                        end
-                    end
-                end
+            local cur=iskeypressed(TOGGLE_KEYCODE)
+            if cur and not last then
+                isUIVisible=not isUIVisible
+                if not isUIVisible then dragging=false; draggingScroll=false end
             end
-            
-            if not isWaitingForKey and not editingProfileIndex then
-                local currentToggleState = iskeypressed(TOGGLE_KEYCODE)
-                if currentToggleState and not lastToggleState then
-                    isUIVisible = not isUIVisible
-                    if not isUIVisible then dragging = false end
-                    updateContentLayout()
-                end
-                lastToggleState = currentToggleState
-            end
+            last=cur
         end
-        task.wait(0.01)
+        task.wait()
     end
 end)
 
 applyActiveAnimations()
-
