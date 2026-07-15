@@ -15,6 +15,7 @@ local keybindLabel = nil
 local TOGGLE_KEYCODE = 115
 local MAX_CONFIGS = 50
 local CONFIG_FILE = "anim_changer_multiconfig.json"
+local notificationsEnabled = true
 
 local function resolveDynamicOffsets()
     local success, response = pcall(function()
@@ -446,6 +447,7 @@ local function saveTheme()
 end
 
 local function showNotification(msg)
+    if not notificationsEnabled then return end
     local _nq = _G._nq or {}
     _G._nq = _nq
     table.insert(_nq, msg)
@@ -602,7 +604,14 @@ local activeMenuIndex = nil
 
 local function clearSubs()
     for _,l in ipairs(subOptLabels) do pcall(function() l:Remove() end) end
-    for _,l in ipairs(subThemeIcons) do pcall(function() l:Remove() end) end
+    for _,l in ipairs(subThemeIcons) do
+        if type(l) == "table" and l.isCheckbox then
+            pcall(function() l.border:Remove() end)
+            pcall(function() l.fill:Remove() end)
+        else
+            pcall(function() l:Remove() end)
+        end
+    end
     for _,l in ipairs(subBgs) do pcall(function() l:Remove() end) end
     for _,l in ipairs(subOuts) do pcall(function() l:Remove() end) end
     subOptLabels={}; subThemeIcons={}; subBgs={}; subOuts={}; bounds.subs={}
@@ -867,6 +876,8 @@ local function layout(mx, my)
         local opts = {}
         if isSettings then
             for _, th in ipairs(ThemeOrder) do table.insert(opts, {name = th .. " Theme", isTheme = th}) end
+            local notifLabel = "Notifications"
+            table.insert(opts, {name = notifLabel, isNotifToggle = true})
         else
             opts = dropdowns[activeMenuIndex].optionsData
         end
@@ -901,11 +912,28 @@ local function layout(mx, my)
                     table.insert(subOuts, out)
 
                     if isSettings then
-                        local ti=mkS()
-                        ti.Size=Vector2.new(12,12)
-                        ti.Color=Themes[opt.isTheme].C_ACCENT; ti.Transparency=1.0*globalAlpha; ti.Visible=true
-                        pcall(function() ti.Corner=2 end)
-                        table.insert(subThemeIcons, ti)
+                        local opt = opts[idx]
+                        if opt and opt.isTheme then
+                            local ti=mkS()
+                            ti.Size=Vector2.new(13,13)
+                            ti.Color=Themes[opt.isTheme].C_ACCENT; ti.Transparency=1.0*globalAlpha; ti.Visible=true
+                            pcall(function() ti.Corner=2 end)
+                            table.insert(subThemeIcons, ti)
+                        elseif opt and opt.isNotifToggle then
+                            -- checkbox square
+                            local cb = mkOut()
+                            cb.Size=Vector2.new(13,13)
+                            cb.Color=C.C_MUTED; cb.Transparency=0.8*globalAlpha; cb.Visible=true
+                            pcall(function() cb.Corner=3 end)
+                            -- inner fill
+                            local cbFill = mkS()
+                            cbFill.Size=Vector2.new(9,9)
+                            cbFill.Color=C.C_ACCENT; cbFill.Visible=false
+                            pcall(function() cbFill.Corner=2 end)
+                            table.insert(subThemeIcons, {border=cb, fill=cbFill, isCheckbox=true})
+                        else
+                            table.insert(subThemeIcons, false)
+                        end
                     end
                     
                     local lbl=mkT(); lbl.Text=opt.name; lbl.Size=FS
@@ -952,13 +980,34 @@ local function layout(mx, my)
                     
                     if isSettings then
                         local ti = subThemeIcons[i]
-                        ti.Position=Vector2.new(sb[1]+8, sb[2]+sb[4]/2-6)
-                        ti.Transparency=1.0*globalAlpha
+                        if ti and ti ~= false then
+                            if ti.isCheckbox then
+                                -- draw checkbox border
+                                ti.border.Position=Vector2.new(sb[1]+8, sb[2]+sb[4]/2-6)
+                                ti.border.Color = notificationsEnabled and C.C_ACCENT or C.C_MUTED
+                                ti.border.Transparency=0.9*globalAlpha; ti.border.Visible=true
+                                -- draw inner tick fill when ON
+                                ti.fill.Position=Vector2.new(sb[1]+10, sb[2]+sb[4]/2-4)
+                                ti.fill.Color = C.C_ACCENT
+                                ti.fill.Transparency = notificationsEnabled and (1.0*globalAlpha) or 0
+                                ti.fill.Visible = notificationsEnabled
+                            else
+                                ti.Position=Vector2.new(sb[1]+8, sb[2]+sb[4]/2-6)
+                                ti.Transparency=1.0*globalAlpha
+                            end
+                        end
                     end
                     
                     lbl.Position=Vector2.new(isSettings and (sb[1]+28) or (sb[1]+10), sb[2]+sb[4]/2 - FS/2)
                     if isSettings then
-                        lbl.Color = hovered and Themes[opt.isTheme].C_ACCENT or Themes[opt.isTheme].C_TEXT
+                        local opt = sb[5]
+                        if opt and opt.isNotifToggle then
+                            lbl.Color = hovered and C.C_ACCENT or C.C_TEXT
+                        elseif opt and opt.isTheme then
+                            lbl.Color = hovered and Themes[opt.isTheme].C_ACCENT or Themes[opt.isTheme].C_TEXT
+                        else
+                            lbl.Color = hovered and C.C_ACCENT or C.C_TEXT
+                        end
                     else
                         lbl.Color = hovered and C.C_ACCENT or C.C_TEXT
                     end
@@ -1045,7 +1094,10 @@ task.spawn(function()
                 for _,sb in ipairs(bounds.subs) do
                     if inB(sb,mx,my) then
                         local opt=sb[5]
-                        if opt.isTheme then
+                        if opt.isNotifToggle then
+                            notificationsEnabled = not notificationsEnabled
+                            prevActiveMenuIndex = -1  -- force submenu rebuild so checkbox updates
+                        elseif opt.isTheme then
                             C = Themes[opt.isTheme] or Themes.Navy
                             currentThemeName = opt.isTheme
                             saveTheme()
